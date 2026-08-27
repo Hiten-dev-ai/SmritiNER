@@ -1,0 +1,20 @@
+{
+  "short_name": "SmritiNER",
+  "name": "SmritiNER — Cognitive Engagement & Memory Support",
+  "description": "Offline-capable cognitive games, reminders and caregiver support for elders in North Eastern India.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "background_color": "#f8fbf9",
+  "theme_color": "#236338",
+  "display": "standalone",
+  "orientation": "any",
+  "lang": "en-IN",
+  "categories": ["health", "education", "lifestyle"]
+}

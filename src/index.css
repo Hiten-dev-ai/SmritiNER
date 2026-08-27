@@ -1,0 +1,201 @@
+@config "../tailwind.config.js";
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', 'Noto Sans Bengali', system-ui, -apple-system, sans-serif;
+    touch-action: manipulation;
+    overflow-x: hidden;
+    min-width: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus-visible {
+    outline: 3px solid #0284c7;
+    outline-offset: 3px;
+  }
+
+  main button,
+  main a {
+    min-height: 2.75rem;
+  }
+
+  main button {
+    min-width: 2.75rem;
+  }
+}
+
+/* Elderly High-Contrast Themes */
+.theme-tea {
+  --color-primary: #236338;
+  --color-primary-light: #e1f2e6;
+  --color-accent: #f59e0b;
+  --color-bg: #f9fbf9;
+  --color-card: #ffffff;
+  --color-text: #1a4128;
+}
+
+.theme-brahma {
+  --color-primary: #0284c7;
+  --color-primary-light: #e0f2fe;
+  --color-accent: #e11d48;
+  --color-bg: #f0f9ff;
+  --color-card: #ffffff;
+  --color-text: #0c4a6e;
+}
+
+.theme-contrast {
+  --color-primary: #000000;
+  --color-primary-light: #fef08a;
+  --color-accent: #eab308;
+  --color-bg: #ffffff;
+  --color-card: #ffffff;
+  --color-text: #000000;
+}
+
+.theme-contrast body,
+.theme-contrast .app-surface {
+  background: #ffffff !important;
+  color: #000000 !important;
+}
+
+.theme-contrast header,
+.theme-contrast footer,
+.theme-contrast main [class*="bg-white"],
+.theme-contrast main [class*="bg-stone"],
+.theme-contrast main [class*="bg-tea"],
+.theme-contrast main [class*="bg-emerald"],
+.theme-contrast main [class*="bg-amber"],
+.theme-contrast main [class*="bg-rose"],
+.theme-contrast main [class*="bg-sky"] {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border-color: #000000 !important;
+}
+
+.theme-contrast main h1,
+.theme-contrast main h2,
+.theme-contrast main h3,
+.theme-contrast main h4,
+.theme-contrast main p,
+.theme-contrast main span {
+  color: #000000 !important;
+}
+
+.theme-contrast button,
+.theme-contrast a {
+  border-color: #000000 !important;
+}
+
+/* Custom NER Color Utilities */
+.bg-tea-50 { background-color: #f2f9f4; }
+.bg-tea-100 { background-color: #e1f2e6; }
+.bg-tea-200 { background-color: #c3e5cd; }
+.bg-tea-500 { background-color: #389957; }
+.bg-tea-600 { background-color: #2a7c44; }
+.bg-tea-700 { background-color: #236338; }
+.bg-tea-800 { background-color: #1e4f2e; }
+.bg-tea-900 { background-color: #1a4128; }
+.bg-tea-950 { background-color: #0a2414; }
+
+.text-tea-700 { color: #236338; }
+.text-tea-800 { color: #1e4f2e; }
+.text-tea-900 { color: #1a4128; }
+.text-tea-950 { color: #0a2414; }
+
+.border-tea-200 { border-color: #c3e5cd; }
+.border-tea-300 { border-color: #94d1a6; }
+.border-tea-400 { border-color: #5eb57a; }
+.border-tea-500 { border-color: #389957; }
+.border-tea-600 { border-color: #2a7c44; }
+.border-tea-700 { border-color: #236338; }
+
+.bg-brahma-500 { background-color: #0ea5e9; }
+.bg-brahma-600 { background-color: #0284c7; }
+.bg-brahma-700 { background-color: #0369a1; }
+.text-brahma-700 { color: #0369a1; }
+.text-brahma-800 { color: #075985; }
+.text-brahma-900 { color: #0c4a6e; }
+.text-brahma-950 { color: #082f49; }
+.border-brahma-200 { border-color: #bae6fd; }
+.border-brahma-300 { border-color: #7dd3fc; }
+.border-brahma-500 { border-color: #0ea5e9; }
+.border-brahma-600 { border-color: #0284c7; }
+
+.bg-assamGold-300 { background-color: #fcd34d; }
+.bg-assamGold-400 { background-color: #fbbf24; }
+.bg-assamGold-500 { background-color: #f59e0b; }
+.bg-assamGold-600 { background-color: #d97706; }
+.text-assamGold-300 { color: #fcd34d; }
+.text-assamGold-400 { color: #fbbf24; }
+.text-assamGold-500 { color: #f59e0b; }
+.text-assamGold-600 { color: #d97706; }
+
+.bg-gamusaRed-100 { background-color: #ffe4e6; }
+.bg-gamusaRed-600 { background-color: #e11d48; }
+.bg-gamusaRed-700 { background-color: #be123c; }
+.text-gamusaRed-600 { color: #e11d48; }
+.text-gamusaRed-700 { color: #be123c; }
+.border-gamusaRed-500 { border-color: #f43f5e; }
+
+/* Tactile Big-Button Effects for Elderly Fingers */
+.tactile-btn {
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  user-select: none;
+}
+.tactile-btn:active {
+  transform: scale(0.96);
+}
+
+.elder-touch {
+  min-height: 3.5rem;
+}
+
+/* Pulsing hint for dementia AI dynamic assist */
+@keyframes hint-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 15px rgba(245, 158, 11, 0);
+    transform: scale(1.04);
+  }
+}
+
+.ai-hint-active {
+  animation: hint-pulse 1.8s infinite cubic-bezier(0.4, 0, 0.6, 1);
+  border-color: #f59e0b !important;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

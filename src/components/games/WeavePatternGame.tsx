@@ -3,9 +3,10 @@ import { audioManager } from '../../services/audioManager';
 import { aiEngine, type DifficultyDecision } from '../../services/aiEngine';
 import { db } from '../../services/db';
 import { GameResultModal } from './GameResultModal';
-import { ArrowLeft, HelpCircle, Palette } from 'lucide-react';
+import { Palette } from 'lucide-react';
 import type { GameSession, DifficultyTier } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { GameShell } from './GameShell';
 
 interface WeavePatternRound {
   id: number;
@@ -143,7 +144,6 @@ export const WeavePatternGame: React.FC<WeavePatternGameProps> = ({ onBack }) =>
   const [correctRounds, setCorrectRounds] = useState<number>(0);
   const [startTime, setStartTime] = useState<number>(0);
   const [isGameOver, setIsGameOver] = useState<boolean>(false);
-  const [durationSeconds, setDurationSeconds] = useState<number>(0);
   const [difficultyDecision, setDifficultyDecision] = useState<DifficultyDecision>();
 
   const lastActionTimeRef = useRef<number>(0);
@@ -230,7 +230,6 @@ export const WeavePatternGame: React.FC<WeavePatternGameProps> = ({ onBack }) =>
     const elapsedSec = Math.max(1, Math.round((getCurrentTime() - startTime) / 1000));
     const score = Math.min(100, Math.max(50, accuracy + difficultyLevel * 4));
 
-    setDurationSeconds(elapsedSec);
     setIsGameOver(true);
 
     const session: GameSession = {
@@ -263,62 +262,8 @@ export const WeavePatternGame: React.FC<WeavePatternGameProps> = ({ onBack }) =>
   const currentRound = WEAVE_ROUNDS[currentRoundIndex] || WEAVE_ROUNDS[0];
 
   return (
-    <div className="max-w-4xl mx-auto p-4 sm:p-6 animate-fade-in">
-      {/* Top Header */}
-      <div className="flex flex-wrap items-center justify-between bg-white rounded-3xl p-4 sm:p-5 shadow-sm border border-stone-200 mb-6 gap-3">
-        <button
-          onClick={() => {
-            audioManager.playTap();
-            onBack();
-          }}
-          className="tactile-btn flex items-center space-x-2 text-stone-700 hover:text-tea-800 bg-stone-100 hover:bg-stone-200 px-4 py-2 rounded-2xl text-xs sm:text-sm font-bold"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>{t.exit}</span>
-        </button>
-
-        <div className="text-center">
-          <h2 className="text-xl sm:text-2xl font-black text-tea-900 leading-tight">
-            {t.weaveTitle}
-          </h2>
-          <p className="text-xs text-stone-500 font-semibold">
-            Recognize and complete traditional geometric handloom motifs
-          </p>
-        </div>
-
-        {/* Level Selector */}
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-black">
-            <span className="hidden sm:inline px-2 text-[10px] uppercase tracking-wide text-stone-500">
-              Demo level
-            </span>
-            {([1, 2, 3, 4, 5] as DifficultyTier[]).map((lv) => (
-              <button
-                key={lv}
-                onClick={() => startNewGame(lv)}
-                aria-label={`Demo override: start level ${lv}`}
-                aria-pressed={difficultyLevel === lv}
-                title="Manual demo override"
-                className={`px-2.5 py-1 rounded-lg transition-all ${
-                  difficultyLevel === lv
-                    ? 'bg-gamusaRed-600 text-white shadow-sm'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                L{lv}
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={triggerManualHint}
-            className="tactile-btn flex items-center space-x-1 bg-amber-50 hover:bg-amber-100 text-amber-900 px-3 py-1.5 rounded-xl text-xs font-bold border border-amber-300"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>{t.hint}</span>
-          </button>
-        </div>
-      </div>
+    <GameShell title={t.weaveTitle} instruction={t.weaveInstruction} onExit={onBack} onHint={triggerManualHint} status={`${currentRoundIndex + 1} / ${WEAVE_ROUNDS.length}`} level={difficultyLevel} onLevelChange={(level) => { void startNewGame(level); }}>
+      <div className="animate-fade-in">
 
       {/* Round & Theme Card */}
       <div className="bg-white rounded-3xl p-6 border-2 border-gamusaRed-500/20 shadow-md mb-8">
@@ -327,7 +272,7 @@ export const WeavePatternGame: React.FC<WeavePatternGameProps> = ({ onBack }) =>
             <Palette className="w-5 h-5 text-gamusaRed-600" />
             <h3 className="text-base sm:text-lg font-black text-stone-900">{currentRound.theme}</h3>
           </div>
-          <span className="text-xs font-bold bg-gamusaRed-100 text-gamusaRed-700 px-3 py-1 rounded-full">
+          <span className="text-sm font-bold bg-gamusaRed-100 text-gamusaRed-700 px-3 py-1 rounded-full">
             Tier {difficultyLevel} • Pattern {currentRoundIndex + 1}
           </span>
         </div>
@@ -342,14 +287,14 @@ export const WeavePatternGame: React.FC<WeavePatternGameProps> = ({ onBack }) =>
                 key={idx}
                 className={`w-14 h-14 sm:w-18 sm:h-18 rounded-2xl flex flex-col items-center justify-center border-2 transition-all ${
                   isMissingSlot
-                    ? 'bg-amber-100 border-amber-500 text-amber-900 animate-pulse scale-105 shadow-md'
+                    ? 'bg-amber-100 border-amber-500 text-amber-900 scale-105 shadow-md'
                     : 'bg-white border-stone-200 shadow-sm'
                 }`}
               >
                 <span className="text-2xl sm:text-3xl">
                   {isMissingSlot && selectedOption ? selectedOption : motif.emoji}
                 </span>
-                <span className="text-[9px] font-bold text-stone-500 mt-0.5 truncate max-w-[55px]">
+                <span className="mt-0.5 max-w-[70px] truncate text-sm font-bold text-stone-600">
                   {motif.label}
                 </span>
               </div>
@@ -357,15 +302,15 @@ export const WeavePatternGame: React.FC<WeavePatternGameProps> = ({ onBack }) =>
           })}
         </div>
 
-        <p className="text-xs text-center text-stone-600 italic bg-amber-50/70 p-2 rounded-xl border border-amber-200/60">
+        <p className="rounded-xl border border-amber-200/60 bg-amber-50/70 p-3 text-center text-base font-medium text-stone-700">
           {currentRound.heritageLore}
         </p>
       </div>
 
       {/* Options Selection */}
       <div>
-        <h4 className="text-xs font-black text-stone-500 uppercase tracking-wider mb-3 text-center">
-          Which motif correctly completes the weave?
+        <h4 className="mb-3 text-center text-base font-black text-stone-700">
+          {t.patternQuestion}
         </h4>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-xl mx-auto">
@@ -382,7 +327,7 @@ export const WeavePatternGame: React.FC<WeavePatternGameProps> = ({ onBack }) =>
                 }`}
               >
                 <span className="text-3xl sm:text-4xl mb-1">{opt.emoji}</span>
-                <span className="text-xs font-bold text-stone-800">{opt.label}</span>
+                <span className="text-base font-bold text-stone-800">{opt.label}</span>
               </button>
             );
           })}
@@ -391,15 +336,13 @@ export const WeavePatternGame: React.FC<WeavePatternGameProps> = ({ onBack }) =>
 
       <GameResultModal
         isOpen={isGameOver}
-        score={Math.round((correctRounds / WEAVE_ROUNDS.length) * 100)}
         accuracy={Math.round((correctRounds / WEAVE_ROUNDS.length) * 100)}
-        durationSeconds={durationSeconds}
-        difficultyLevel={difficultyLevel}
         difficultyDecision={difficultyDecision}
         gameTitle={t.weaveTitle}
         onPlayAgain={() => startNewGame()}
         onBackToMenu={onBack}
       />
-    </div>
+      </div>
+    </GameShell>
   );
 };

@@ -51,8 +51,8 @@ export interface CognitiveMetrics {
   motorReactionScore: number; // 0 - 100
   overallCognitiveScore: number; // 0 - 100
   fatigueIndex: number;       // 0 - 100
-  riskOfDecline: 'Low' | 'Moderate' | 'High';
-  clinicalSummary: string;
+  engagementTrend: 'stable' | 'variable' | 'needs-support' | 'insufficient-data';
+  supportSummary: string;
 }
 
 export interface ReminderItem {
@@ -65,6 +65,11 @@ export interface ReminderItem {
   dosage?: string;
   completedDates: string[]; // ['2026-08-27', ...]
   iconName: string;
+  repeat?: 'daily' | 'once';
+  scheduledDate?: string;
+  alertsEnabled?: boolean;
+  snoozedUntil?: string;
+  lastAlertedDate?: string;
   synced: boolean;
 }
 

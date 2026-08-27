@@ -5,14 +5,15 @@ import { useApp } from '../../context/AppContext';
 import { audioManager } from '../../services/audioManager';
 import { db } from '../../services/db';
 import type { ReminderItem } from '../../types';
+import { getLocalDateKey, isReminderScheduledForDate } from '../../services/localDate';
 
 interface DailyRoutineViewProps { onBack?: () => void }
 type RoutineFilter = 'all' | 'medicine' | 'routine';
 
 export const DailyRoutineView: React.FC<DailyRoutineViewProps> = ({ onBack }) => {
   const { selectedLanguage, t } = useApp();
-  const todayStr = new Date().toISOString().split('T')[0];
-  const reminders = useLiveQuery(() => db.reminders.toArray()) || [];
+  const todayStr = getLocalDateKey();
+  const reminders = (useLiveQuery(() => db.reminders.toArray()) || []).filter((reminder) => isReminderScheduledForDate(reminder, todayStr));
   const [filter, setFilter] = useState<RoutineFilter>('all');
   const locale = selectedLanguage === 'Hindi' ? 'hi-IN' : selectedLanguage === 'Assamese' ? 'as-IN' : 'en-IN';
 
@@ -65,17 +66,17 @@ export const DailyRoutineView: React.FC<DailyRoutineViewProps> = ({ onBack }) =>
         )}
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-black text-tea-950 leading-tight">{t.todaysRoutine}</h1>
-          <p className="text-xs sm:text-sm font-semibold text-stone-500 mt-1">{new Date().toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+          <p className="mt-1 text-base font-semibold text-stone-500">{new Date().toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
         </div>
         <div className="bg-tea-50 border border-tea-300 px-4 py-2 rounded-2xl text-center self-start sm:self-auto shrink-0">
-          <span className="text-[10px] font-bold uppercase text-tea-800 tracking-wider block">{t.today}</span>
+          <span className="block text-sm font-bold text-tea-800">{t.today}</span>
           <span className="text-lg font-black text-tea-900">{completedCount} / {reminders.length} {t.done}</span>
         </div>
       </section>
 
       <div className="grid grid-cols-3 gap-2" role="group" aria-label="Routine filters">
         {filters.map((item) => (
-          <button key={item.key} onClick={() => { audioManager.playTap(); setFilter(item.key); }} className={`tactile-btn min-h-14 px-2 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold ${filter === item.key ? 'bg-tea-700 text-white shadow-sm' : 'bg-white text-stone-700 border border-stone-300'}`} aria-pressed={filter === item.key}>
+          <button key={item.key} onClick={() => { audioManager.playTap(); setFilter(item.key); }} className={`tactile-btn min-h-14 min-w-0 px-2 sm:px-4 py-2 rounded-xl text-base font-bold leading-tight ${filter === item.key ? 'bg-tea-700 text-white shadow-sm' : 'bg-white text-stone-700 border border-stone-300'}`} aria-pressed={filter === item.key}>
             {item.label}
           </button>
         ))}
@@ -90,11 +91,11 @@ export const DailyRoutineView: React.FC<DailyRoutineViewProps> = ({ onBack }) =>
                 <span className={`w-14 h-14 shrink-0 rounded-2xl flex items-center justify-center border-2 ${complete ? 'bg-emerald-100 border-emerald-300' : 'bg-stone-100 border-stone-200'}`}>{iconFor(reminder.category)}</span>
                 <span className="min-w-0">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-black text-tea-800 bg-tea-100 px-2.5 py-1 rounded-full flex items-center gap-1"><Clock className="w-3 h-3" /> {formatTime(reminder.time)}</span>
-                    {reminder.dosage && <span className="text-xs font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-full">{reminder.dosage}</span>}
+                    <span className="flex items-center gap-1 rounded-full bg-tea-100 px-2.5 py-1 text-base font-black text-tea-800"><Clock className="h-4 w-4" /> {formatTime(reminder.time)}</span>
+                    {reminder.dosage && <span className="rounded-full bg-rose-50 px-2 py-1 text-base font-bold text-rose-700">{reminder.dosage}</span>}
                   </span>
                   <span className={`block text-lg sm:text-xl font-black mt-1 break-words ${complete ? 'line-through text-stone-500' : 'text-stone-900'}`}>{reminder.title}</span>
-                  {reminder.notes && <span className="block text-xs sm:text-sm text-stone-600 mt-1 break-words">{reminder.notes}</span>}
+                  {reminder.notes && <span className="mt-1 block break-words text-base text-stone-700">{reminder.notes}</span>}
                 </span>
               </span>
               <span className={`w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center border-2 ${complete ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-white border-stone-300 text-transparent'}`}><CheckCircle2 className="w-6 h-6" /></span>

@@ -28,12 +28,12 @@ export const LanguageMenuModal: React.FC<LanguageMenuModalProps> = ({ isOpen, on
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-3 sm:p-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/60 p-0 sm:items-center sm:p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="language-title"
     >
-      <div className="w-full max-w-lg rounded-t-3xl sm:rounded-3xl bg-white p-5 sm:p-7 shadow-2xl border-2 border-stone-200">
+      <div className="max-h-[100dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border-2 border-stone-200 bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-3xl sm:p-7">
         <div className="flex items-center justify-between gap-3 pb-4 border-b border-stone-200">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-tea-100 text-tea-800 flex items-center justify-center">
@@ -61,7 +61,7 @@ export const LanguageMenuModal: React.FC<LanguageMenuModalProps> = ({ isOpen, on
               >
                 <span>
                   <span className="block text-xl font-black">{language.nativeName}</span>
-                  <span className="block text-xs font-semibold text-stone-500">{language.detail}</span>
+                  <span className="block text-base font-semibold text-stone-600">{language.detail}</span>
                 </span>
                 {selected && <Check className="w-6 h-6 text-tea-700" />}
               </button>

@@ -7,6 +7,7 @@ import type {
   AshaScreeningRecord,
   DailyHydrationLog,
 } from '../types';
+import { getLocalDateKey } from './localDate';
 
 export class SmritiDatabase extends Dexie {
   patients!: Table<PatientProfile, string>;
@@ -25,6 +26,19 @@ export class SmritiDatabase extends Dexie {
       reminiscenceItems: '++id, patientId, synced',
       ashaScreenings: '++id, elderName, district, dementiaRiskCategory, synced',
       hydrationLogs: '++id, patientId, date, synced',
+    });
+    this.version(2).stores({
+      patients: 'id, name, state',
+      gameSessions: '++id, patientId, gameType, completedAt, synced',
+      reminders: '++id, patientId, category, synced',
+      reminiscenceItems: '++id, patientId, synced',
+      ashaScreenings: '++id, elderName, district, dementiaRiskCategory, synced',
+      hydrationLogs: '++id, patientId, date, synced',
+    }).upgrade(async (transaction) => {
+      await transaction.table('reminders').toCollection().modify((reminder: ReminderItem) => {
+        reminder.repeat ??= 'daily';
+        reminder.alertsEnabled ??= true;
+      });
     });
   }
 }
@@ -61,7 +75,7 @@ async function seedDatabase() {
   await db.patients.add(defaultPatient);
 
   // Seed Reminders
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateKey();
   const initialReminders: Omit<ReminderItem, 'id'>[] = [
     {
       patientId: 'pat-ner-001',
@@ -72,6 +86,8 @@ async function seedDatabase() {
       notes: 'Doctor prescribed for cognitive support',
       completedDates: [today],
       iconName: 'Pill',
+      repeat: 'daily',
+      alertsEnabled: true,
       synced: true,
     },
     {
@@ -82,6 +98,8 @@ async function seedDatabase() {
       notes: '15 minutes fresh air stroll',
       completedDates: [today],
       iconName: 'Footprints',
+      repeat: 'daily',
+      alertsEnabled: true,
       synced: true,
     },
     {
@@ -92,6 +110,8 @@ async function seedDatabase() {
       notes: 'Stay hydrated in afternoon heat',
       completedDates: [],
       iconName: 'Droplets',
+      repeat: 'daily',
+      alertsEnabled: true,
       synced: true,
     },
     {
@@ -102,6 +122,8 @@ async function seedDatabase() {
       notes: 'Listen to devotional Dihanaam',
       completedDates: [],
       iconName: 'Bell',
+      repeat: 'daily',
+      alertsEnabled: true,
       synced: true,
     },
     {
@@ -113,6 +135,8 @@ async function seedDatabase() {
       notes: 'With dinner',
       completedDates: [],
       iconName: 'HeartPulse',
+      repeat: 'daily',
+      alertsEnabled: true,
       synced: true,
     }
   ];

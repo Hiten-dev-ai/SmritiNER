@@ -17,6 +17,14 @@ export interface DifficultyDecision {
   reason: string;
   averageAccuracy: number;
   averageHesitations: number;
+  reasonCode:
+    | 'start'
+    | 'harder'
+    | 'highest'
+    | 'gentler'
+    | 'gentlest'
+    | 'same'
+    | 'reminiscence';
 }
 
 export class AIEngine {
@@ -50,6 +58,7 @@ export class AIEngine {
         reason: 'Starting at a gentle baseline until a few completed games are available.',
         averageAccuracy: 0,
         averageHesitations: 0,
+        reasonCode: 'start',
       };
     }
 
@@ -71,6 +80,7 @@ export class AIEngine {
         reason: 'This reminiscence activity stays gentle so familiar memories remain reassuring.',
         averageAccuracy,
         averageHesitations,
+        reasonCode: 'reminiscence',
       };
     }
 
@@ -90,6 +100,7 @@ export class AIEngine {
             : 'The highest level is being kept because recent answers were accurate with little hesitation.',
         averageAccuracy,
         averageHesitations,
+        reasonCode: level > previousLevel ? 'harder' : 'highest',
       };
     }
 
@@ -104,6 +115,7 @@ export class AIEngine {
             : 'The gentlest level is being kept because recent games needed more time or hints.',
         averageAccuracy,
         averageHesitations,
+        reasonCode: level < previousLevel ? 'gentler' : 'gentlest',
       };
     }
 
@@ -113,6 +125,7 @@ export class AIEngine {
       reason: 'Next game will stay at the same level because recent performance was steady.',
       averageAccuracy,
       averageHesitations,
+      reasonCode: 'same',
     };
   }
 
@@ -179,9 +192,9 @@ export class AIEngine {
         motorReactionScore: 78,
         overallCognitiveScore: 81,
         fatigueIndex: 14,
-        riskOfDecline: 'Low',
-        clinicalSummary:
-          'Baseline cognitive performance is stable. Patient actively engages with visual memory, executive sequencing, and sensory-motor exercises.',
+        engagementTrend: 'insufficient-data',
+        supportSummary:
+          'More completed activities are needed before showing a meaningful engagement trend.',
       };
     }
 
@@ -215,9 +228,9 @@ export class AIEngine {
     const avgHesitations = avg(sessions, 'hesitationsCount');
     const fatigueIndex = Math.min(100, Math.max(5, avgHesitations * 10));
 
-    let riskOfDecline: 'Low' | 'Moderate' | 'High' = 'Low';
-    let clinicalSummary =
-      'Cognitive indices demonstrate strong stability and reliable short-term memory retrieval across multiple clinical domains.';
+    let engagementTrend: CognitiveMetrics['engagementTrend'] = 'stable';
+    let supportSummary =
+      'Recent activities show steady participation. Continue the familiar routine and offer breaks whenever needed.';
 
     if (sessions.length >= 4) {
       const firstHalf = sessions.slice(0, Math.floor(sessions.length / 2));
@@ -229,13 +242,13 @@ export class AIEngine {
       const declineDelta = firstAvg - secondAvg;
 
       if (declineDelta >= 14 || overallCognitiveScore < 60) {
-        riskOfDecline = 'High';
-        clinicalSummary =
-          'Clinical Alert: Noticeable downward shift in memory and sequence recall over recent sessions. Full neurological review recommended.';
+        engagementTrend = 'needs-support';
+        supportSummary =
+          'Recent activities needed more support. Try gentler sessions, check comfort and hydration, and share persistent concerns with a qualified healthcare professional.';
       } else if (declineDelta >= 7 || overallCognitiveScore < 72) {
-        riskOfDecline = 'Moderate';
-        clinicalSummary =
-          'Mild fluctuation in focus and motor reaction times observed. Recommend scheduled cognitive therapy sessions and hydration adherence.';
+        engagementTrend = 'variable';
+        supportSummary =
+          'Participation has varied recently. Keep sessions short, use familiar prompts, and note whether time of day affects comfort.';
       }
     }
 
@@ -246,8 +259,8 @@ export class AIEngine {
       motorReactionScore,
       overallCognitiveScore,
       fatigueIndex,
-      riskOfDecline,
-      clinicalSummary,
+      engagementTrend,
+      supportSummary,
     };
   }
 }

@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useState, useEffect, type ReactNode } from 'react';
 import type { AppMode, ThemeMode, FontSizeScale, PatientProfile } from '../types';
 import { db, initializeDatabaseSeed } from '../services/db';
 import { syncService } from '../services/syncService';
 import { audioManager } from '../services/audioManager';
 import { translations, type LanguageCode, type TranslationDictionary } from '../services/translations';
+import { readAloudService } from '../services/readAloudService';
 
 interface AppContextType {
   mode: AppMode;
@@ -25,6 +26,16 @@ interface AppContextType {
   selectedLanguage: LanguageCode;
   setSelectedLanguage: (lang: LanguageCode) => void;
   t: TranslationDictionary;
+  isGameActive: boolean;
+  setGameActive: (active: boolean) => void;
+  judgeDemoEnabled: boolean;
+  setJudgeDemoEnabled: (enabled: boolean) => void;
+  isReadingAloud: boolean;
+  speechSupported: boolean;
+  readAloud: (text: string) => boolean;
+  stopReadAloud: () => void;
+  reminderSoundEnabled: boolean;
+  setReminderSoundEnabled: (enabled: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -48,6 +59,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const saved = localStorage.getItem('smriti-language');
     return saved === 'Hindi' || saved === 'Assamese' ? saved : 'English';
   });
+  const [isGameActive, setGameActive] = useState(false);
+  const [judgeDemoEnabled, setJudgeDemoEnabledState] = useState(
+    () => sessionStorage.getItem('smriti-judge-demo') === 'true'
+  );
+  const [isReadingAloud, setIsReadingAloud] = useState(false);
+  const [reminderSoundEnabled, setReminderSoundEnabledState] = useState(
+    () => localStorage.getItem('smriti-reminder-sound') !== 'false'
+  );
+  const speechSupported = readAloudService.isSupported();
 
   useEffect(() => {
     async function init() {
@@ -93,6 +113,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     localStorage.setItem('smriti-language', selectedLanguage);
   }, [selectedLanguage]);
 
+  useEffect(() => () => readAloudService.stop(), []);
+
+  const setJudgeDemoEnabled = (enabled: boolean) => {
+    setJudgeDemoEnabledState(enabled);
+    sessionStorage.setItem('smriti-judge-demo', String(enabled));
+  };
+
+  const setReminderSoundEnabled = (enabled: boolean) => {
+    setReminderSoundEnabledState(enabled);
+    localStorage.setItem('smriti-reminder-sound', String(enabled));
+  };
+
+  const stopReadAloud = useCallback(() => {
+    readAloudService.stop();
+    setIsReadingAloud(false);
+  }, []);
+
+  const readAloud = useCallback((text: string) => {
+    stopReadAloud();
+    const started = readAloudService.speak(text, selectedLanguage, () => setIsReadingAloud(false));
+    setIsReadingAloud(started);
+    return started;
+  }, [selectedLanguage, stopReadAloud]);
+
   const toggleNetworkSimulation = () => {
     audioManager.playTap();
     syncService.setSimulatedNetworkStatus(!isOnline);
@@ -136,6 +180,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         selectedLanguage,
         setSelectedLanguage,
         t,
+        isGameActive,
+        setGameActive,
+        judgeDemoEnabled,
+        setJudgeDemoEnabled,
+        isReadingAloud,
+        speechSupported,
+        readAloud,
+        stopReadAloud,
+        reminderSoundEnabled,
+        setReminderSoundEnabled,
       }}
     >
       <div

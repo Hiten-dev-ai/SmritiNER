@@ -2,11 +2,12 @@ import React, { useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../services/db';
 import { audioManager } from '../../services/audioManager';
-import { ArrowLeft, Volume2, Sparkles, Heart, CheckCircle, Music } from 'lucide-react';
+import { Volume2, Sparkles, Heart, CheckCircle, Music } from 'lucide-react';
 import { GameResultModal } from './GameResultModal';
 import { aiEngine, type DifficultyDecision } from '../../services/aiEngine';
 import type { ReminiscencePhoto, GameSession } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { GameShell } from './GameShell';
 
 interface ReminiscenceAlbumGameProps {
   onBack: () => void;
@@ -22,7 +23,6 @@ export const ReminiscenceAlbumGame: React.FC<ReminiscenceAlbumGameProps> = ({ on
   const [showAudioClue, setShowAudioClue] = useState<boolean>(false);
   const [correctAnswersCount, setCorrectAnswersCount] = useState<number>(0);
   const [isGameOver, setIsGameOver] = useState<boolean>(false);
-  const [durationSeconds, setDurationSeconds] = useState<number>(0);
   const [difficultyDecision, setDifficultyDecision] = useState<DifficultyDecision>();
   const startTimeRef = useRef<number>(0);
 
@@ -56,7 +56,6 @@ export const ReminiscenceAlbumGame: React.FC<ReminiscenceAlbumGameProps> = ({ on
       const accuracy = total > 0 ? Math.round((correctAnswersCount / total) * 100) : 100;
       const elapsedSec = Math.max(1, Math.round((getCurrentTime() - startTimeRef.current) / 1000));
 
-      setDurationSeconds(elapsedSec);
       setIsGameOver(true);
 
       const session: GameSession = {
@@ -96,53 +95,28 @@ export const ReminiscenceAlbumGame: React.FC<ReminiscenceAlbumGameProps> = ({ on
 
   if (photos.length === 0) {
     return (
-      <div className="max-w-xl mx-auto p-8 text-center bg-white rounded-3xl shadow-md border border-stone-200">
-        <Heart className="w-12 h-12 text-rose-500 mx-auto mb-3 animate-pulse" />
-        <h3 className="text-xl font-bold text-stone-900">No Reminiscence Photos Yet</h3>
-        <p className="text-sm text-stone-600 my-3">
-          Caregivers can easily upload memorable family photographs and regional memories in the Caregiver Portal.
+      <GameShell title={t.albumTitle} instruction={t.albumInstruction} onExit={onBack}>
+      <div className="mx-auto max-w-xl rounded-3xl border border-stone-200 bg-white p-8 text-center shadow-md">
+        <Heart className="w-12 h-12 text-rose-500 mx-auto mb-3" />
+        <h3 className="text-xl font-bold text-stone-900">{t.noPhotos}</h3>
+        <p className="my-3 text-base text-stone-600">
+          {t.noPhotosHelp}
         </p>
         <button
           onClick={onBack}
           className="tactile-btn px-6 py-2.5 bg-tea-600 text-white rounded-xl font-bold"
         >
-          Return to Menu
+          {t.returnToMenu}
         </button>
-      </div>
+      </div></GameShell>
     );
   }
 
   const currentOptions = currentPhoto ? generateOptions(currentPhoto) : [];
 
   return (
-    <div className="max-w-4xl mx-auto p-4 sm:p-6 animate-fade-in">
-      {/* Top Header */}
-      <div className="flex items-center justify-between bg-white rounded-2xl p-4 shadow-sm border border-stone-200 mb-6">
-        <button
-          onClick={() => {
-            audioManager.playTap();
-            onBack();
-          }}
-          className="tactile-btn flex items-center space-x-2 text-stone-700 hover:text-tea-800 bg-stone-100 hover:bg-stone-200 px-4 py-2 rounded-xl text-sm font-bold"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>{t.exit}</span>
-        </button>
-
-        <div className="text-center">
-          <h2 className="text-xl sm:text-2xl font-black text-tea-900 leading-tight flex items-center justify-center gap-2">
-            <Heart className="w-6 h-6 text-rose-500" />
-            <span>{t.albumTitle}</span>
-          </h2>
-          <p className="text-xs sm:text-sm font-semibold text-stone-500">
-            {t.albumSubtitle}
-          </p>
-        </div>
-
-        <span className="text-xs font-bold bg-tea-100 text-tea-800 px-3 py-1.5 rounded-xl border border-tea-300">
-          Memory {currentIndex + 1} of {photos.length}
-        </span>
-      </div>
+    <GameShell title={t.albumTitle} instruction={t.albumInstruction} onExit={onBack} status={`${currentIndex + 1} / ${photos.length}`}>
+      <div className="animate-fade-in">
 
       {currentPhoto && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
@@ -159,7 +133,7 @@ export const ReminiscenceAlbumGame: React.FC<ReminiscenceAlbumGameProps> = ({ on
             />
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 text-white">
               <h3 className="text-base sm:text-lg font-black leading-tight">{currentPhoto.title}</h3>
-              <p className="text-xs text-stone-300">
+              <p className="text-base text-stone-200">
                 {currentPhoto.relationshipOrPlace} {currentPhoto.year ? `• ${currentPhoto.year}` : ''}
               </p>
             </div>
@@ -168,9 +142,9 @@ export const ReminiscenceAlbumGame: React.FC<ReminiscenceAlbumGameProps> = ({ on
           {/* Memory Prompt & Interaction Area */}
           <div className="bg-white rounded-3xl p-6 shadow-lg border-2 border-tea-500/30 flex flex-col justify-between">
             <div>
-              <div className="flex items-center space-x-2 text-tea-800 font-bold text-xs uppercase tracking-wider mb-2">
+              <div className="mb-2 flex items-center space-x-2 text-base font-bold text-tea-800">
                 <Sparkles className="w-4 h-4 text-assamGold-500" />
-                <span>Memory Recall Question</span>
+                <span>{t.memoryRecallQuestion}</span>
               </div>
 
               <h4 className="text-lg sm:text-xl font-black text-stone-900 leading-snug mb-4">
@@ -185,14 +159,14 @@ export const ReminiscenceAlbumGame: React.FC<ReminiscenceAlbumGameProps> = ({ on
                       audioManager.playTap();
                       setShowAudioClue(!showAudioClue);
                     }}
-                    className="tactile-btn flex items-center space-x-2 bg-amber-50 hover:bg-amber-100 text-amber-900 px-3.5 py-1.5 rounded-xl text-xs font-bold border border-amber-300"
+                    className="tactile-btn flex min-h-[48px] items-center space-x-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 text-base font-bold text-amber-900 hover:bg-amber-100"
                   >
                     <Volume2 className="w-4 h-4 text-amber-600" />
-                    <span>{showAudioClue ? 'Hide Audio Clue' : 'Listen to Family Clue'}</span>
+                    <span>{showAudioClue ? t.hideClue : t.listenFamilyClue}</span>
                   </button>
 
                   {showAudioClue && (
-                    <div className="mt-2 p-3 bg-amber-100/70 rounded-2xl border border-amber-300 text-xs font-semibold text-amber-950 animate-fade-in flex items-start space-x-2">
+                    <div className="mt-2 flex items-start space-x-2 rounded-2xl border border-amber-300 bg-amber-100/70 p-3 text-base font-semibold text-amber-950 animate-fade-in">
                       <Music className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
                       <span>{currentPhoto.audioPromptHint}</span>
                     </div>
@@ -210,7 +184,7 @@ export const ReminiscenceAlbumGame: React.FC<ReminiscenceAlbumGameProps> = ({ on
                     <button
                       key={idx}
                       onClick={() => handleSelectAnswer(opt)}
-                      className={`tactile-btn w-full p-4 rounded-2xl border-2 text-left font-bold text-sm sm:text-base flex items-center justify-between transition-all ${
+                      className={`tactile-btn w-full p-4 rounded-2xl border-2 text-left font-bold text-base flex items-center justify-between transition-all ${
                         isSelected
                           ? isCorrect
                             ? 'bg-emerald-50 border-emerald-600 text-emerald-950 shadow-md'
@@ -220,7 +194,7 @@ export const ReminiscenceAlbumGame: React.FC<ReminiscenceAlbumGameProps> = ({ on
                     >
                       <span>{opt}</span>
                       {isSelected && (
-                        <span>{isCorrect ? '✓ Correct' : '✕ Try Again'}</span>
+                        <span>{isCorrect ? `✓ ${t.correct}` : `✕ ${t.tryAgain}`}</span>
                       )}
                     </button>
                   );
@@ -232,10 +206,10 @@ export const ReminiscenceAlbumGame: React.FC<ReminiscenceAlbumGameProps> = ({ on
             {selectedAnswer !== null && (
               <button
                 onClick={handleNextPhoto}
-                className="tactile-btn w-full py-4 rounded-2xl bg-tea-600 hover:bg-tea-700 text-white font-black text-base shadow-lg flex items-center justify-center space-x-2 animate-bounce mt-2"
+                className="tactile-btn mt-2 flex min-h-[56px] w-full items-center justify-center space-x-2 rounded-2xl bg-tea-700 px-4 text-lg font-black text-white shadow-lg hover:bg-tea-800"
               >
                 <span>
-                  {currentIndex + 1 < photos.length ? 'Next Cherished Memory' : 'Complete Session'}
+                  {currentIndex + 1 < photos.length ? t.nextMemory : t.completeSession}
                 </span>
                 <CheckCircle className="w-5 h-5" />
               </button>
@@ -246,24 +220,21 @@ export const ReminiscenceAlbumGame: React.FC<ReminiscenceAlbumGameProps> = ({ on
 
       <GameResultModal
         isOpen={isGameOver}
-        score={Math.round((correctAnswersCount / Math.max(1, photos.length)) * 100)}
         accuracy={Math.round((correctAnswersCount / Math.max(1, photos.length)) * 100)}
-        durationSeconds={durationSeconds}
-        difficultyLevel={1}
         difficultyDecision={difficultyDecision}
-        gameTitle="Reminiscence Photo & Sound Album"
+        gameTitle={t.albumTitle}
         onPlayAgain={() => {
           setCurrentIndex(0);
           setSelectedAnswer(null);
           setShowAudioClue(false);
           setCorrectAnswersCount(0);
           setIsGameOver(false);
-          setDurationSeconds(0);
           setDifficultyDecision(undefined);
           startTimeRef.current = 0;
         }}
         onBackToMenu={onBack}
       />
-    </div>
+      </div>
+    </GameShell>
   );
 };

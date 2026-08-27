@@ -4,6 +4,7 @@ import { db } from '../../services/db';
 import { audioManager } from '../../services/audioManager';
 import { Plus, Trash2, Clock, Pill } from 'lucide-react';
 import type { ReminderItem } from '../../types';
+import { getLocalDateKey } from '../../services/localDate';
 
 export const ReminderManager: React.FC = () => {
   const reminders = useLiveQuery(() => db.reminders.toArray()) || [];
@@ -13,6 +14,9 @@ export const ReminderManager: React.FC = () => {
   const [time, setTime] = useState('08:00');
   const [dosage, setDosage] = useState('');
   const [notes, setNotes] = useState('');
+  const [repeat, setRepeat] = useState<'daily' | 'once'>('daily');
+  const [scheduledDate, setScheduledDate] = useState(getLocalDateKey());
+  const [alertsEnabled, setAlertsEnabled] = useState(true);
 
   const handleAddReminder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +32,9 @@ export const ReminderManager: React.FC = () => {
       notes: notes.trim() || undefined,
       completedDates: [],
       iconName: category === 'medicine' ? 'Pill' : category === 'hydration' ? 'Droplets' : 'Bell',
+      repeat,
+      scheduledDate: repeat === 'once' ? scheduledDate : undefined,
+      alertsEnabled,
       synced: false,
     };
 
@@ -46,13 +53,13 @@ export const ReminderManager: React.FC = () => {
 
   return (
     <div className="bg-white rounded-3xl p-6 border border-stone-200 shadow-sm animate-fade-in">
-      <div className="flex items-center justify-between pb-4 border-b border-stone-200 mb-6">
+      <div className="mb-6 flex flex-col gap-3 border-b border-stone-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-xl font-black text-stone-900">
             Medication & Routine Schedule
           </h3>
           <p className="text-xs text-stone-500">
-            Set visual and audio alerts for dementia patient daily care
+            Due alerts appear while this app is open; closed-app alarms are not claimed.
           </p>
         </div>
 
@@ -121,6 +128,13 @@ export const ReminderManager: React.FC = () => {
                 className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm focus:outline-none focus:border-tea-600"
               />
             </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-bold text-stone-600">Repeats</label>
+              <select value={repeat} onChange={(event) => setRepeat(event.target.value as 'daily' | 'once')} className="w-full rounded-xl border border-stone-300 px-3 py-2 text-sm focus:border-tea-600 focus:outline-none"><option value="daily">Every day</option><option value="once">One time</option></select>
+            </div>
+
+            {repeat === 'once' && <div><label className="mb-1 block text-xs font-bold text-stone-600">Scheduled date</label><input type="date" value={scheduledDate} min={getLocalDateKey()} onChange={(event) => setScheduledDate(event.target.value)} required className="w-full rounded-xl border border-stone-300 px-3 py-2 text-sm focus:border-tea-600 focus:outline-none" /></div>}
           </div>
 
           <div>
@@ -133,6 +147,8 @@ export const ReminderManager: React.FC = () => {
               className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm focus:outline-none focus:border-tea-600"
             />
           </div>
+
+          <label className="flex min-h-[48px] items-center gap-3 rounded-xl border border-stone-300 bg-white px-3 text-sm font-bold text-stone-800"><input type="checkbox" checked={alertsEnabled} onChange={(event) => setAlertsEnabled(event.target.checked)} className="h-5 w-5 accent-tea-700" />Show an in-app due alert and optional sound</label>
 
           <div className="flex justify-end space-x-2 pt-2">
             <button

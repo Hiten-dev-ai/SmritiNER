@@ -87,15 +87,15 @@ export const GameSelection: React.FC<GameSelectionProps> = ({ onSelectGame }) =>
                 audioManager.playTap();
                 onSelectGame(game.id);
               }}
-              className={`tactile-btn relative rounded-3xl p-6 text-left border-2 ${game.borderColor} ${game.bgColor} hover:shadow-lg transition-all flex flex-col justify-between group select-none min-h-[170px]`}
+              className={`tactile-btn relative min-h-[144px] rounded-3xl border-2 p-5 text-left ${game.borderColor} ${game.bgColor} flex flex-col justify-between group select-none transition-all hover:shadow-lg`}
             >
-              <span className="absolute right-3 bottom-3 text-5xl opacity-15 pointer-events-none">
+              <span className="pointer-events-none absolute bottom-3 right-3 text-4xl opacity-10">
                 {game.accentEmoji}
               </span>
 
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-[11px] font-black uppercase tracking-wider bg-white px-2.5 py-0.5 rounded-full text-stone-800 border border-stone-200 shadow-xs">
+                  <span className="rounded-full border border-stone-200 bg-white px-2.5 py-1 text-sm font-black text-stone-800 shadow-xs">
                     {game.domain}
                   </span>
                   <div className={`p-2.5 rounded-2xl bg-gradient-to-tr ${game.color} text-white shadow-xs`}>
@@ -106,12 +106,12 @@ export const GameSelection: React.FC<GameSelectionProps> = ({ onSelectGame }) =>
                 <h3 className="text-xl font-black text-stone-950 leading-tight">
                   {game.title}
                 </h3>
-                <p className="text-xs font-bold text-stone-500 mt-0.5">
+                <p className="mt-1 text-base font-semibold text-stone-700">
                   {game.subtitle}
                 </p>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-stone-200/80 flex items-center justify-between font-black text-xs text-tea-900 group-hover:text-tea-700">
+              <div className="mt-3 flex items-center justify-between border-t border-stone-200/80 pt-3 text-base font-black text-tea-900 group-hover:text-tea-700">
                 <span>{t.startExercise}</span>
                 <div className="w-6 h-6 rounded-full bg-white shadow-xs flex items-center justify-center group-hover:translate-x-1 transition-transform">
                   <ChevronRight className="w-3.5 h-3.5" />

@@ -4,7 +4,7 @@ import { db } from '../../services/db';
 import { useApp } from '../../context/AppContext';
 import { audioManager } from '../../services/audioManager';
 import { aiEngine } from '../../services/aiEngine';
-import { generateClinicalPDF } from '../../services/reportGenerator';
+import { generateEngagementPDF } from '../../services/reportGenerator';
 import { CognitiveCharts } from './CognitiveCharts';
 import { ReminderManager } from './ReminderManager';
 import { ReminiscenceManager } from './ReminiscenceManager';
@@ -19,12 +19,13 @@ import {
   MapPin,
   Phone,
   HardDrive,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 type CaregiverTab = 'analytics' | 'reminders' | 'photos' | 'asha';
 
 export const CaregiverDashboard: React.FC = () => {
-  const { currentPatient } = useApp();
+  const { currentPatient, judgeDemoEnabled, setJudgeDemoEnabled, t } = useApp();
   const [activeTab, setActiveTab] = useState<CaregiverTab>('analytics');
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
 
@@ -38,7 +39,7 @@ export const CaregiverDashboard: React.FC = () => {
 
     try {
       const metrics = aiEngine.computeCognitiveMetrics(sessions);
-      generateClinicalPDF(currentPatient, metrics, sessions, reminders);
+      generateEngagementPDF(currentPatient, metrics, sessions, reminders);
       audioManager.playSuccess();
     } catch {
       // safe fallback
@@ -86,7 +87,7 @@ export const CaregiverDashboard: React.FC = () => {
           className="tactile-btn w-full md:w-auto shrink-0 flex items-center justify-center space-x-2 bg-tea-700 hover:bg-tea-800 text-white px-5 py-3 rounded-2xl font-bold text-sm shadow-md border-2 border-tea-600"
         >
           <FileDown className={`w-5 h-5 ${isGeneratingPdf ? 'animate-bounce' : ''}`} />
-          <span>{isGeneratingPdf ? 'Compiling PDF...' : 'Download Clinical PDF Report'}</span>
+          <span>{isGeneratingPdf ? 'Preparing summary...' : 'Download Engagement Summary'}</span>
         </button>
       </div>
 
@@ -95,10 +96,15 @@ export const CaregiverDashboard: React.FC = () => {
         <p><strong>Local prototype privacy:</strong> this dashboard uses demo health data stored in this browser. It does not upload records to a cloud service or provide a medical diagnosis.</p>
       </div>
 
+      <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-stone-300 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3"><SlidersHorizontal className="mt-0.5 h-5 w-5 shrink-0 text-brahma-700" /><div><h3 className="font-black text-stone-950">{t.judgeDemoTools}</h3><p className="text-sm text-stone-600">{t.judgeDemoDescription}</p><p className="mt-1 text-sm font-bold text-amber-800">{t.localDemoAccess}</p></div></div>
+        <button onClick={() => setJudgeDemoEnabled(!judgeDemoEnabled)} className={`tactile-btn min-h-[48px] shrink-0 rounded-xl border px-4 text-sm font-black ${judgeDemoEnabled ? 'border-brahma-700 bg-brahma-600 text-white' : 'border-stone-300 bg-stone-100 text-stone-800'}`} aria-pressed={judgeDemoEnabled}>{judgeDemoEnabled ? 'Enabled' : 'Enable'}</button>
+      </div>
+
       {/* Tabs Navigation */}
-      <div className="flex flex-wrap gap-2 mb-6 border-b border-stone-200 pb-3">
+      <div className="mb-6 flex max-w-full gap-2 overflow-x-auto border-b border-stone-200 pb-3" role="tablist" aria-label="Caregiver sections">
         {[
-          { key: 'analytics', label: '📊 Cognitive Analytics & MoCA Trajectory', icon: Activity },
+          { key: 'analytics', label: 'Engagement Trends', icon: Activity },
           { key: 'reminders', label: '💊 Daily Medicines & Routine Manager', icon: CalendarCheck },
           { key: 'photos', label: '📸 Family Photo Reminiscence Lane', icon: Heart },
           { key: 'asha', label: '🩺 ASHA Field Cognitive Registry', icon: Stethoscope },
@@ -113,7 +119,9 @@ export const CaregiverDashboard: React.FC = () => {
                 audioManager.playTap();
                 setActiveTab(tab.key as CaregiverTab);
               }}
-              className={`tactile-btn flex items-center space-x-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all ${
+              role="tab"
+              aria-selected={isActive}
+              className={`tactile-btn flex min-h-[48px] shrink-0 items-center space-x-2 rounded-2xl px-4 text-sm font-bold transition-all ${
                 isActive
                   ? 'bg-brahma-600 text-white shadow-md'
                   : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'

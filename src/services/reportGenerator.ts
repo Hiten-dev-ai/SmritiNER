@@ -1,7 +1,8 @@
 import jsPDF from 'jspdf';
 import type { PatientProfile, CognitiveMetrics, GameSession, ReminderItem } from '../types';
+import { getLocalDateKey } from './localDate';
 
-export function generateClinicalPDF(
+export function generateEngagementPDF(
   patient: PatientProfile,
   metrics: CognitiveMetrics,
   sessions: GameSession[],
@@ -17,18 +18,18 @@ export function generateClinicalPDF(
   let y = 15;
 
   // Header Banner
-  doc.setFillColor(30, 79, 46); // Clinical forest green
+  doc.setFillColor(30, 79, 46);
   doc.rect(0, 0, pageWidth, 28, 'F');
 
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(17);
-  doc.text('SmritiNER (স্মৃতিNER) - Neurological Cognitive Assessment', 14, 12);
+  doc.text('SmritiNER (স্মৃতিNER) - Caregiver Engagement Summary', 14, 12);
 
   doc.setFontSize(9.5);
   doc.setFont('helvetica', 'normal');
-  doc.text('Digital Therapeutics & Longitudinal Neuro-Cognitive Monitoring System', 14, 18);
-  doc.text(`Clinical Evaluation Date: ${new Date().toLocaleDateString('en-IN', { dateStyle: 'full' })}`, 14, 24);
+  doc.text('Demo activity, routine and support overview - not a diagnostic assessment', 14, 18);
+  doc.text(`Summary Date: ${new Date().toLocaleDateString('en-IN', { dateStyle: 'full' })}`, 14, 24);
 
   y = 36;
 
@@ -40,7 +41,7 @@ export function generateClinicalPDF(
   doc.setTextColor(26, 65, 40);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10.5);
-  doc.text('PATIENT DEMOGRAPHICS & CLINICAL PROFILE', 18, y + 6);
+  doc.text('ELDER PROFILE & CARE CONTACT', 18, y + 6);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
@@ -50,22 +51,22 @@ export function generateClinicalPDF(
   doc.text(`Age / Gender: ${patient.age} Yrs / ${patient.gender}`, 18, y + 17);
   doc.text(`Location: ${patient.villageOrDistrict}, ${patient.state}`, 18, y + 22);
 
-  doc.text(`Clinical Stage: ${patient.diagnosisStage}`, 110, y + 12);
+  doc.text(`Care context: ${patient.diagnosisStage}`, 110, y + 12);
   doc.text(`Designated Caregiver: ${patient.emergencyContactName} (${patient.emergencyContactPhone})`, 110, y + 17);
   doc.text(`Assigned Health Officer / ASHA: ${patient.ashaWorkerAssigned || 'Jorhat District Hospital'}`, 110, y + 22);
 
   y += 34;
 
-  // MoCA-Aligned Scores Grid
+  // Activity-derived engagement indicators
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11.5);
   doc.setTextColor(30, 79, 46);
-  doc.text('COGNITIVE DOMAIN PERFORMANCE METRICS (MoCA / MMSE Aligned)', 14, y);
+  doc.text('ACTIVITY-DERIVED ENGAGEMENT INDICATORS', 14, y);
 
   y += 5;
 
   const scoreBoxes = [
-    { title: 'Composite Score', val: `${metrics.overallCognitiveScore}/100`, color: [30, 79, 46] },
+    { title: 'Engagement Index', val: `${metrics.overallCognitiveScore}/100`, color: [30, 79, 46] },
     { title: 'Memory Retention', val: `${metrics.memoryIndex}%`, color: [2, 132, 199] },
     { title: 'Attention & Focus', val: `${metrics.attentionIndex}%`, color: [217, 119, 6] },
     { title: 'Executive Routine', val: `${metrics.executiveFunction}%`, color: [147, 51, 234] },
@@ -91,29 +92,30 @@ export function generateClinicalPDF(
 
   y += 26;
 
-  // Clinical Summary & Risk Assessment
-  doc.setDrawColor(metrics.riskOfDecline === 'High' ? 225 : 30, metrics.riskOfDecline === 'High' ? 29 : 79, metrics.riskOfDecline === 'High' ? 72 : 46);
-  doc.setFillColor(metrics.riskOfDecline === 'High' ? 254 : 245, metrics.riskOfDecline === 'High' ? 242 : 250, metrics.riskOfDecline === 'High' ? 242 : 246);
+  // Caregiver support summary
+  const needsSupport = metrics.engagementTrend === 'needs-support';
+  doc.setDrawColor(needsSupport ? 225 : 30, needsSupport ? 29 : 79, needsSupport ? 72 : 46);
+  doc.setFillColor(needsSupport ? 254 : 245, needsSupport ? 242 : 250, needsSupport ? 242 : 246);
   doc.roundedRect(14, y, pageWidth - 28, 22, 2, 2, 'FD');
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
-  doc.setTextColor(metrics.riskOfDecline === 'High' ? 180 : 30, metrics.riskOfDecline === 'High' ? 20 : 79, metrics.riskOfDecline === 'High' ? 40 : 46);
-  doc.text(`Diagnostic Trajectory Analysis - Risk Category: [ ${metrics.riskOfDecline.toUpperCase()} RISK ]`, 18, y + 6);
+  doc.setTextColor(needsSupport ? 180 : 30, needsSupport ? 20 : 79, needsSupport ? 40 : 46);
+  doc.text(`Engagement trend: ${metrics.engagementTrend.replace('-', ' ').toUpperCase()}`, 18, y + 6);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.8);
   doc.setTextColor(40, 40, 40);
-  const splitSummary = doc.splitTextToSize(metrics.clinicalSummary, pageWidth - 36);
+  const splitSummary = doc.splitTextToSize(metrics.supportSummary, pageWidth - 36);
   doc.text(splitSummary, 18, y + 12);
 
   y += 28;
 
-  // Recent Cognitive Therapy Sessions Table
+  // Recent activity sessions table
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(30, 79, 46);
-  doc.text('LONGITUDINAL DIGITAL THERAPEUTIC SESSIONS (RECENT LOGS)', 14, y);
+  doc.text('RECENT COGNITIVE ENGAGEMENT ACTIVITIES', 14, y);
 
   y += 5;
 
@@ -135,7 +137,7 @@ export function generateClinicalPDF(
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(60, 60, 60);
 
-  const displaySessions = sessions.slice(0, 7);
+  const displaySessions = sessions.slice(-7).reverse();
   displaySessions.forEach((s) => {
     const sessionDate = new Date(s.completedAt).toLocaleDateString('en-IN', {
       day: '2-digit',
@@ -159,11 +161,11 @@ export function generateClinicalPDF(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(30, 79, 46);
-  doc.text('MEDICATION & ROUTINE COMPLIANCE MONITORING', 14, y);
+  doc.text('MEDICATION & ROUTINE CHECKLIST', 14, y);
 
   y += 5;
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateKey();
   reminders.forEach((r) => {
     const isTaken = r.completedDates.includes(todayStr);
     doc.setFontSize(8.5);
@@ -183,11 +185,11 @@ export function generateClinicalPDF(
   doc.setFont('helvetica', 'italic');
   doc.setTextColor(120, 120, 120);
   doc.text(
-    'Confidential Medical Document • SmritiNER Clinical Platform for Age-Related Cognitive Disorders (North Eastern Region)',
+    'Demo-generated caregiver summary • Not a medical diagnosis or substitute for professional care',
     pageWidth / 2,
     y,
     { align: 'center' }
   );
 
-  doc.save(`SmritiNER_Clinical_Report_${patient.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+  doc.save(`SmritiNER_Engagement_Summary_${patient.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
 }

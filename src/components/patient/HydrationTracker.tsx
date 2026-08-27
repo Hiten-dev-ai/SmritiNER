@@ -6,10 +6,11 @@ import { Droplets, Plus, Minus, CheckCircle2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import type { DailyHydrationLog } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { getLocalDateKey } from '../../services/localDate';
 
 export const HydrationTracker: React.FC = () => {
   const { t } = useApp();
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateKey();
   const logs = useLiveQuery(() => db.hydrationLogs.where('date').equals(todayStr).toArray()) || [];
   const todayLog: DailyHydrationLog | undefined = logs[0];
 
@@ -21,7 +22,7 @@ export const HydrationTracker: React.FC = () => {
     const clamped = Math.max(0, Math.min(10, newCount));
     if (clamped >= targetGlasses && glasses < targetGlasses) {
       audioManager.playVictory();
-      confetti({ particleCount: 40, spread: 60, colors: ['#0284c7', '#38bdf8', '#bae6fd'] });
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) confetti({ particleCount: 30, spread: 55, colors: ['#0284c7', '#38bdf8', '#bae6fd'] });
     } else {
       audioManager.playSuccess();
     }
@@ -56,7 +57,7 @@ export const HydrationTracker: React.FC = () => {
           </div>
         </div>
 
-        <span className="text-xs sm:text-sm font-black bg-white text-brahma-900 px-3 py-1 rounded-full border border-brahma-200 shadow-xs">
+        <span className="rounded-full border border-brahma-200 bg-white px-3 py-1 text-base font-black text-brahma-900 shadow-xs">
           {glasses} / {targetGlasses} {t.glasses}
         </span>
       </div>
@@ -79,7 +80,7 @@ export const HydrationTracker: React.FC = () => {
               aria-pressed={isDrunk}
             >
               <Droplets className={`w-5 h-5 sm:w-6 sm:h-6 ${isDrunk ? 'fill-current' : ''}`} />
-              <span className="text-[10px] font-bold mt-0.5">{gIndex}</span>
+              <span className="mt-0.5 text-sm font-bold">{gIndex}</span>
             </button>
           );
         })}
@@ -89,12 +90,12 @@ export const HydrationTracker: React.FC = () => {
       <div className="flex items-center justify-between pt-3 border-t border-brahma-200/60">
         <div>
           {glasses >= targetGlasses ? (
-            <span className="flex items-center space-x-1 text-xs font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+            <span className="flex items-center space-x-1 rounded-full bg-emerald-100 px-2.5 py-1 text-base font-bold text-emerald-800">
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>{t.targetAchieved}</span>
             </span>
           ) : (
-            <span className="text-xs font-bold text-brahma-800">
+            <span className="text-base font-bold text-brahma-800">
               {targetGlasses - glasses} {t.remaining}
             </span>
           )}
@@ -104,14 +105,14 @@ export const HydrationTracker: React.FC = () => {
           <button
             onClick={() => updateHydration(glasses - 1)}
             disabled={glasses === 0}
-            className="tactile-btn min-w-11 min-h-11 rounded-xl bg-white text-brahma-900 border border-brahma-300 disabled:opacity-40 flex items-center justify-center"
+            className="tactile-btn flex h-[48px] w-[48px] items-center justify-center rounded-xl border border-brahma-300 bg-white text-brahma-900 disabled:opacity-40"
             aria-label="Remove one glass"
           >
             <Minus className="w-4 h-4" />
           </button>
           <button
             onClick={() => updateHydration(glasses + 1)}
-            className="tactile-btn min-h-11 px-3 rounded-xl bg-brahma-600 hover:bg-brahma-700 text-white font-bold text-xs flex items-center space-x-1 shadow-xs"
+            className="tactile-btn flex min-h-[48px] items-center space-x-1 rounded-xl bg-brahma-600 px-3 text-base font-bold text-white shadow-xs hover:bg-brahma-700"
             aria-label={t.addGlass}
           >
             <Plus className="w-3.5 h-3.5" />

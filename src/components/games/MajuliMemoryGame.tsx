@@ -3,9 +3,9 @@ import { audioManager } from '../../services/audioManager';
 import { aiEngine, type DifficultyDecision } from '../../services/aiEngine';
 import { db } from '../../services/db';
 import { GameResultModal } from './GameResultModal';
-import { HelpCircle, ArrowLeft, Brain, Flame } from 'lucide-react';
 import type { GameSession, DifficultyTier } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { GameShell } from './GameShell';
 
 interface CardItem {
   id: string;
@@ -109,10 +109,8 @@ export const MajuliMemoryGame: React.FC<MajuliMemoryGameProps> = ({ onBack }) =>
   const [hintsUsedCount, setHintsUsedCount] = useState<number>(0);
   const [hintIndices, setHintIndices] = useState<number[]>([]);
   const [startTime, setStartTime] = useState<number>(0);
-  const [durationSeconds, setDurationSeconds] = useState<number>(0);
   const [totalAttempts, setTotalAttempts] = useState<number>(0);
   const [isGameOver, setIsGameOver] = useState<boolean>(false);
-  const [finalScore, setFinalScore] = useState<number>(0);
   const [finalAccuracy, setFinalAccuracy] = useState<number>(0);
   const [difficultyDecision, setDifficultyDecision] = useState<DifficultyDecision>();
 
@@ -224,13 +222,11 @@ export const MajuliMemoryGame: React.FC<MajuliMemoryGameProps> = ({ onBack }) =>
 
   const handleGameComplete = async (attempts: number, pairsCount: number) => {
     const elapsedSec = Math.max(1, Math.round((getCurrentTime() - startTime) / 1000));
-    setDurationSeconds(elapsedSec);
 
     const accuracy = Math.min(100, Math.max(30, Math.round((pairsCount / attempts) * 100)));
     const score = Math.min(100, Math.max(40, Math.round(accuracy * 0.75 + difficultyLevel * 5)));
 
     setFinalAccuracy(accuracy);
-    setFinalScore(score);
     setIsGameOver(true);
 
     const sessionRecord: GameSession = {
@@ -268,86 +264,9 @@ export const MajuliMemoryGame: React.FC<MajuliMemoryGameProps> = ({ onBack }) =>
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-4 sm:p-6 animate-fade-in">
-      {/* Top Game Bar */}
-      <div className="flex flex-wrap items-center justify-between bg-white rounded-3xl p-4 sm:p-5 shadow-sm border border-stone-200 mb-6 gap-3">
-        <button
-          onClick={() => {
-            audioManager.playTap();
-            onBack();
-          }}
-          className="tactile-btn flex items-center space-x-2 text-stone-700 hover:text-tea-800 bg-stone-100 hover:bg-stone-200 px-4 py-2 rounded-2xl text-xs sm:text-sm font-bold"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>{t.exit}</span>
-        </button>
-
-        <div className="text-center">
-          <h2 className="text-xl sm:text-2xl font-black text-tea-900 leading-tight">
-            {t.majuliTitle}
-          </h2>
-          <p className="text-xs text-stone-500 font-semibold">
-            {t.majuliSubtitle}
-          </p>
-        </div>
-
-        {/* Difficulty Level Selector */}
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-black">
-            <span className="hidden sm:inline px-2 text-[10px] uppercase tracking-wide text-stone-500">
-              Demo level
-            </span>
-            {([1, 2, 3, 4, 5] as DifficultyTier[]).map((lv) => (
-              <button
-                key={lv}
-                onClick={() => startNewGame(lv)}
-                aria-label={`Demo override: start level ${lv}`}
-                aria-pressed={difficultyLevel === lv}
-                title="Manual demo override"
-                className={`px-2.5 py-1 rounded-lg transition-all ${
-                  difficultyLevel === lv
-                    ? 'bg-tea-700 text-white shadow-sm'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                L{lv}
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={triggerManualHint}
-            className="tactile-btn flex items-center space-x-1 bg-amber-50 hover:bg-amber-100 text-amber-900 px-3 py-1.5 rounded-xl text-xs font-bold border border-amber-300"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>{t.hint}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Stats Bar */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-white rounded-2xl p-3 border border-stone-200 shadow-sm text-center">
-          <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider block">Pairs Cleared</span>
-          <p className="text-lg sm:text-xl font-black text-tea-800">
-            {matchedIds.length} / {cards.length / 2}
-          </p>
-        </div>
-
-        <div className="bg-white rounded-2xl p-3 border border-stone-200 shadow-sm text-center">
-          <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider block">Difficulty Tier</span>
-          <p className="text-lg sm:text-xl font-black text-blue-700 flex items-center justify-center gap-1">
-            <Brain className="w-4 h-4" /> {t.level} {difficultyLevel}
-          </p>
-        </div>
-
-        <div className="bg-white rounded-2xl p-3 border border-stone-200 shadow-sm text-center">
-          <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider block">Streak</span>
-          <p className="text-lg sm:text-xl font-black text-amber-600 flex items-center justify-center gap-1">
-            <Flame className="w-4 h-4" /> {streak}
-          </p>
-        </div>
-      </div>
+    <GameShell title={t.majuliTitle} instruction={t.majuliInstruction} onExit={onBack} onHint={triggerManualHint} status={`${matchedIds.length} / ${cards.length / 2} ${t.memory}`} level={difficultyLevel} onLevelChange={(level) => { void startNewGame(level); }}>
+      <div className="animate-fade-in">
+        {streak > 1 && <p className="mb-3 text-center text-base font-black text-amber-800" aria-live="polite">🔥 {streak}</p>}
 
       {/* Cards Grid */}
       <div
@@ -389,10 +308,10 @@ export const MajuliMemoryGame: React.FC<MajuliMemoryGameProps> = ({ onBack }) =>
                   <span className={`${cards.length >= 12 ? 'text-3xl sm:text-4xl' : 'text-4xl sm:text-5xl'}`}>
                     {card.emoji}
                   </span>
-                  <span className="text-xs sm:text-sm font-black text-stone-900 leading-tight">
+                  <span className="text-base font-black text-stone-900 leading-tight">
                     {card.labelEnglish}
                   </span>
-                  <span className="text-[10px] sm:text-xs font-semibold text-stone-500 leading-tight">
+                  <span className="text-sm font-semibold text-stone-500 leading-tight">
                     {card.labelAssamese}
                   </span>
                 </div>
@@ -401,12 +320,12 @@ export const MajuliMemoryGame: React.FC<MajuliMemoryGameProps> = ({ onBack }) =>
                   <div className="w-10 h-10 rounded-xl bg-tea-100/80 border border-tea-200 flex items-center justify-center text-tea-700 font-black">
                     স্মৃ
                   </div>
-                  <span className="text-[10px] font-bold text-stone-400">Tap</span>
+                  <span className="text-sm font-bold text-stone-500">{t.tapCard}</span>
                 </div>
               )}
 
               {isMatched && (
-                <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-black shadow">
+                <div className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-sm font-black text-white shadow" aria-label={t.pairsCleared}>
                   ✓
                 </div>
               )}
@@ -417,15 +336,13 @@ export const MajuliMemoryGame: React.FC<MajuliMemoryGameProps> = ({ onBack }) =>
 
       <GameResultModal
         isOpen={isGameOver}
-        score={finalScore}
         accuracy={finalAccuracy}
-        durationSeconds={durationSeconds}
-        difficultyLevel={difficultyLevel}
         difficultyDecision={difficultyDecision}
-        gameTitle="Majuli Memory Cards"
+        gameTitle={t.majuliTitle}
         onPlayAgain={() => startNewGame()}
         onBackToMenu={onBack}
       />
-    </div>
+      </div>
+    </GameShell>
   );
 };

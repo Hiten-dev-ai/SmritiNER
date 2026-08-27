@@ -3,9 +3,10 @@ import { audioManager } from '../../services/audioManager';
 import { aiEngine, type DifficultyDecision } from '../../services/aiEngine';
 import { db } from '../../services/db';
 import { GameResultModal } from './GameResultModal';
-import { ArrowLeft, HelpCircle, CheckCircle2, RotateCcw } from 'lucide-react';
+import { CheckCircle2, RotateCcw } from 'lucide-react';
 import type { GameSession, DifficultyTier } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { GameShell } from './GameShell';
 
 interface RoutineStep {
   id: number;
@@ -99,9 +100,7 @@ export const DailyLifeSequenceGame: React.FC<DailyLifeSequenceGameProps> = ({ on
   const [hintsUsedCount, setHintsUsedCount] = useState<number>(0);
   const [startTime, setStartTime] = useState<number>(0);
   const [isGameOver, setIsGameOver] = useState<boolean>(false);
-  const [finalScore, setFinalScore] = useState<number>(0);
   const [finalAccuracy, setFinalAccuracy] = useState<number>(0);
-  const [durationSeconds, setDurationSeconds] = useState<number>(0);
   const [difficultyDecision, setDifficultyDecision] = useState<DifficultyDecision>();
 
   const lastActionTimeRef = useRef<number>(0);
@@ -212,9 +211,7 @@ export const DailyLifeSequenceGame: React.FC<DailyLifeSequenceGameProps> = ({ on
     if (correctCount === totalSteps) {
       audioManager.playSuccess();
       const score = Math.max(50, 100 - hintsUsedCount * 8 - hesitationsCount * 4 + difficultyLevel * 4);
-      setFinalScore(Math.min(100, score));
       setFinalAccuracy(accuracy);
-      setDurationSeconds(elapsedSec);
       setIsGameOver(true);
 
       const session: GameSession = {
@@ -255,72 +252,18 @@ export const DailyLifeSequenceGame: React.FC<DailyLifeSequenceGameProps> = ({ on
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-4 sm:p-6 animate-fade-in">
-      {/* Top Header */}
-      <div className="flex flex-wrap items-center justify-between bg-white rounded-3xl p-4 sm:p-5 shadow-sm border border-stone-200 mb-6 gap-3">
-        <button
-          onClick={() => {
-            audioManager.playTap();
-            onBack();
-          }}
-          className="tactile-btn flex items-center space-x-2 text-stone-700 hover:text-tea-800 bg-stone-100 hover:bg-stone-200 px-4 py-2 rounded-2xl text-xs sm:text-sm font-bold"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>{t.exit}</span>
-        </button>
-
-        <div className="text-center">
-          <h2 className="text-xl sm:text-2xl font-black text-tea-900 leading-tight">
-            {t.sequenceTitle}
-          </h2>
-          <p className="text-xs text-stone-500 font-semibold">
-            Order daily healthcare & wellness steps in proper chronological order
-          </p>
-        </div>
-
-        {/* Difficulty Selector */}
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-black">
-            <span className="hidden sm:inline px-2 text-[10px] uppercase tracking-wide text-stone-500">
-              Demo level
-            </span>
-            {([1, 2, 3, 4, 5] as DifficultyTier[]).map((lv) => (
-              <button
-                key={lv}
-                onClick={() => startNewGame(lv)}
-                aria-label={`Demo override: start level ${lv}`}
-                aria-pressed={difficultyLevel === lv}
-                title="Manual demo override"
-                className={`px-2.5 py-1 rounded-lg transition-all ${
-                  difficultyLevel === lv
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                L{lv}
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={triggerManualHint}
-            className="tactile-btn flex items-center space-x-1 bg-amber-50 hover:bg-amber-100 text-amber-900 px-3 py-1.5 rounded-xl text-xs font-bold border border-amber-300"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>{t.hint}</span>
-          </button>
-        </div>
-      </div>
+    <GameShell title={t.sequenceTitle} instruction={t.sequenceInstruction} onExit={onBack} onHint={triggerManualHint} status={`${slottedSteps.filter(Boolean).length} / ${slottedSteps.length}`} level={difficultyLevel} onLevelChange={(level) => { void startNewGame(level); }}>
+      <div className="animate-fade-in">
 
       {/* Target Timeline Slots */}
       <div className="mb-8 bg-white rounded-3xl p-5 sm:p-6 border-2 border-tea-600/30 shadow-md">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base sm:text-lg font-black text-tea-900 flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-tea-700" />
-            <span>Timeline Order ({slottedSteps.length} Steps)</span>
+            <span>{t.timelineOrder} ({slottedSteps.length})</span>
           </h3>
-          <span className="text-xs font-bold bg-tea-50 text-tea-800 px-3 py-1 rounded-full border border-tea-200">
-            Tap cards below in order
+          <span className="rounded-full border border-tea-200 bg-tea-50 px-3 py-1 text-sm font-bold text-tea-800">
+            {t.tapCardsInOrder}
           </span>
         </div>
 
@@ -340,19 +283,19 @@ export const DailyLifeSequenceGame: React.FC<DailyLifeSequenceGameProps> = ({ on
               {step ? (
                 <>
                   <span className="text-2xl sm:text-3xl mb-1">{step.emoji}</span>
-                  <span className="text-xs sm:text-sm font-black text-tea-950 leading-tight">
+                  <span className="text-base font-black text-tea-950 leading-tight">
                     {step.labelEnglish}
                   </span>
-                  <span className="text-[11px] font-semibold text-stone-600 mt-0.5">
+                  <span className="mt-0.5 text-sm font-semibold text-stone-600">
                     {step.timeCue}
                   </span>
                 </>
               ) : (
                 <div className="flex flex-col items-center">
-                  <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center text-xs font-black text-stone-600 mb-1">
+                  <div className="mb-1 flex h-8 w-8 items-center justify-center rounded-full bg-stone-200 text-base font-black text-stone-600">
                     {idx + 1}
                   </div>
-                  <span className="text-[11px] font-bold text-stone-400">Step {idx + 1}</span>
+                  <span className="text-sm font-bold text-stone-500">{t.step} {idx + 1}</span>
                 </div>
               )}
             </div>
@@ -362,8 +305,8 @@ export const DailyLifeSequenceGame: React.FC<DailyLifeSequenceGameProps> = ({ on
 
       {/* Available Cards Pool */}
       <div>
-        <h4 className="text-xs font-black text-stone-500 uppercase tracking-wider mb-3">
-          Available Sequence Cards (Tap in chronological order):
+        <h4 className="mb-3 text-base font-black text-stone-600">
+          {t.availableCards}
         </h4>
         <div className={`grid gap-3 sm:gap-4 ${
           availableSteps.length <= 4 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
@@ -381,13 +324,13 @@ export const DailyLifeSequenceGame: React.FC<DailyLifeSequenceGameProps> = ({ on
                 <div className="flex items-center space-x-3 mb-1">
                   <span className="text-2xl sm:text-3xl">{step.emoji}</span>
                   <div>
-                    <h5 className="text-xs sm:text-sm font-black text-stone-900 leading-tight">
+                    <h5 className="text-base font-black text-stone-900 leading-tight">
                       {step.labelEnglish}
                     </h5>
-                    <p className="text-[11px] font-semibold text-stone-500">{step.labelAssamese}</p>
+                    <p className="text-sm font-semibold text-stone-500">{step.labelAssamese}</p>
                   </div>
                 </div>
-                <p className="text-[11px] text-stone-600 italic mt-1">{step.description}</p>
+                <p className="mt-1 text-base italic text-stone-600">{step.description}</p>
               </button>
             );
           })}
@@ -397,10 +340,10 @@ export const DailyLifeSequenceGame: React.FC<DailyLifeSequenceGameProps> = ({ on
           <div className="text-center py-4">
             <button
               onClick={() => startNewGame(difficultyLevel)}
-              className="tactile-btn inline-flex items-center space-x-2 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-xl text-xs font-bold"
+              className="tactile-btn inline-flex min-h-[48px] items-center space-x-2 rounded-xl bg-stone-100 px-4 py-2 text-base font-bold text-stone-800 hover:bg-stone-200"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset Sequence</span>
+              <span>{t.resetSequence}</span>
             </button>
           </div>
         )}
@@ -408,15 +351,13 @@ export const DailyLifeSequenceGame: React.FC<DailyLifeSequenceGameProps> = ({ on
 
       <GameResultModal
         isOpen={isGameOver}
-        score={finalScore}
         accuracy={finalAccuracy}
-        durationSeconds={durationSeconds}
-        difficultyLevel={difficultyLevel}
         difficultyDecision={difficultyDecision}
         gameTitle={t.sequenceTitle}
         onPlayAgain={() => startNewGame()}
         onBackToMenu={onBack}
       />
-    </div>
+      </div>
+    </GameShell>
   );
 };

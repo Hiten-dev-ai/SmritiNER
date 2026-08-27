@@ -3,9 +3,10 @@ import { audioManager } from '../../services/audioManager';
 import { aiEngine, type DifficultyDecision } from '../../services/aiEngine';
 import { db } from '../../services/db';
 import { GameResultModal } from './GameResultModal';
-import { ArrowLeft, Trophy, Leaf, Flame } from 'lucide-react';
+import { Trophy, Leaf, Flame } from 'lucide-react';
 import type { GameSession, DifficultyTier } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { GameShell } from './GameShell';
 
 interface HarvestItem {
   id: number;
@@ -34,10 +35,9 @@ export const ChaiHarvestGame: React.FC<ChaiHarvestGameProps> = ({ onBack }) => {
   const [difficultyLevel, setDifficultyLevel] = useState<DifficultyTier>(2);
   const [combo, setCombo] = useState<number>(0);
   const [isGameOver, setIsGameOver] = useState<boolean>(false);
-  const [finalScore, setFinalScore] = useState<number>(0);
   const [finalAccuracy, setFinalAccuracy] = useState<number>(0);
-  const [durationSeconds, setDurationSeconds] = useState<number>(0);
   const [difficultyDecision, setDifficultyDecision] = useState<DifficultyDecision>();
+  const [isRunning, setIsRunning] = useState(false);
 
   const gameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const spawnTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -52,7 +52,7 @@ export const ChaiHarvestGame: React.FC<ChaiHarvestGameProps> = ({ onBack }) => {
     difficultyLevel: 2 as DifficultyTier,
   });
 
-  async function startHarvestGame(targetLevel?: DifficultyTier) {
+  async function prepareHarvestGame(targetLevel?: DifficultyTier) {
     let chosenLevel: DifficultyTier = targetLevel || difficultyLevel;
 
     if (!targetLevel) {
@@ -69,6 +69,7 @@ export const ChaiHarvestGame: React.FC<ChaiHarvestGameProps> = ({ onBack }) => {
     setTimeLeft(config.timeLimitSeconds || 40);
     setActiveItems([]);
     setIsGameOver(false);
+    setIsRunning(false);
     setDifficultyDecision(undefined);
     hasEndedRef.current = false;
     gameStatsRef.current = {
@@ -78,8 +79,15 @@ export const ChaiHarvestGame: React.FC<ChaiHarvestGameProps> = ({ onBack }) => {
       reactionTimes: [],
       difficultyLevel: chosenLevel,
     };
-    startTimeRef.current = getCurrentTime();
+    if (gameTimerRef.current) clearInterval(gameTimerRef.current);
+    if (spawnTimerRef.current) clearInterval(spawnTimerRef.current);
+  }
 
+  const beginHarvestGame = () => {
+    const config = aiEngine.getConfigForLevel('chai_harvest', difficultyLevel);
+    setIsRunning(true);
+    startTimeRef.current = getCurrentTime();
+    spawnNewItem(config.distractionDensity || 0.15, difficultyLevel);
     if (gameTimerRef.current) clearInterval(gameTimerRef.current);
     gameTimerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
@@ -93,14 +101,14 @@ export const ChaiHarvestGame: React.FC<ChaiHarvestGameProps> = ({ onBack }) => {
       });
     }, 1000);
 
-    const spawnIntervalMs = Math.max(750, 2100 - chosenLevel * 280);
+    const spawnIntervalMs = Math.max(750, 2100 - difficultyLevel * 280);
     if (spawnTimerRef.current) clearInterval(spawnTimerRef.current);
     spawnTimerRef.current = setInterval(() => {
-      spawnNewItem(config.distractionDensity || 0.15, chosenLevel);
+      spawnNewItem(config.distractionDensity || 0.15, difficultyLevel);
     }, spawnIntervalMs);
-  }
+  };
 
-  const initialGameRef = useRef(startHarvestGame);
+  const initialGameRef = useRef(prepareHarvestGame);
   useEffect(() => {
     void initialGameRef.current();
     return () => {
@@ -108,6 +116,18 @@ export const ChaiHarvestGame: React.FC<ChaiHarvestGameProps> = ({ onBack }) => {
       if (spawnTimerRef.current) clearInterval(spawnTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (!document.hidden || !isRunning) return;
+      if (gameTimerRef.current) clearInterval(gameTimerRef.current);
+      if (spawnTimerRef.current) clearInterval(spawnTimerRef.current);
+      setIsRunning(false);
+      setActiveItems([]);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [isRunning]);
 
   const spawnNewItem = (distractionRate: number, currentTier: number) => {
     itemCounterRef.current += 1;
@@ -164,6 +184,7 @@ export const ChaiHarvestGame: React.FC<ChaiHarvestGameProps> = ({ onBack }) => {
     hasEndedRef.current = true;
     const stats = gameStatsRef.current;
     setIsGameOver(true);
+    setIsRunning(false);
     const totalTaps = stats.harvestedCount + stats.missedCount;
     const accuracy = totalTaps > 0 ? Math.round((stats.harvestedCount / totalTaps) * 100) : 80;
     const avgReaction =
@@ -173,9 +194,7 @@ export const ChaiHarvestGame: React.FC<ChaiHarvestGameProps> = ({ onBack }) => {
 
     const durationSec = Math.round((getCurrentTime() - startTimeRef.current) / 1000);
     const score = Math.min(100, Math.max(40, stats.totalScore));
-    setFinalScore(score);
     setFinalAccuracy(accuracy);
-    setDurationSeconds(durationSec);
 
     const session: GameSession = {
       patientId: 'pat-ner-001',
@@ -199,89 +218,20 @@ export const ChaiHarvestGame: React.FC<ChaiHarvestGameProps> = ({ onBack }) => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-4 sm:p-6 animate-fade-in">
-      {/* Top Header */}
-      <div className="flex flex-wrap items-center justify-between bg-white rounded-3xl p-4 sm:p-5 shadow-sm border border-stone-200 mb-6 gap-3">
-        <button
-          onClick={() => {
-            audioManager.playTap();
-            onBack();
-          }}
-          className="tactile-btn flex items-center space-x-2 text-stone-700 hover:text-tea-800 bg-stone-100 hover:bg-stone-200 px-4 py-2 rounded-2xl text-xs sm:text-sm font-bold"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>{t.exit}</span>
-        </button>
-
-        <div className="text-center">
-          <h2 className="text-xl sm:text-2xl font-black text-tea-900 leading-tight">
-            {t.harvestTitle}
-          </h2>
-          <p className="text-xs text-stone-500 font-semibold">
-            Tap fresh tea leaves & golden buds quickly into the basket
-          </p>
+    <GameShell title={t.harvestTitle} instruction={t.harvestInstruction} onExit={onBack} status={`⏳ ${timeLeft}s`} level={difficultyLevel} onLevelChange={(level) => { void prepareHarvestGame(level); }}>
+      <div className="animate-fade-in">
+        <div className="mb-3 grid grid-cols-3 gap-2" aria-live="polite">
+          <div className="flex min-h-[48px] items-center justify-center gap-1 rounded-xl border border-stone-200 bg-white px-2 text-base font-black text-emerald-800"><Leaf className="h-5 w-5" />{harvestedCount}</div>
+          <div className="flex min-h-[48px] items-center justify-center gap-1 rounded-xl border border-stone-200 bg-white px-2 text-base font-black text-tea-900"><Trophy className="h-5 w-5 text-assamGold-500" />{totalScore}</div>
+          <div className="flex min-h-[48px] items-center justify-center gap-1 rounded-xl border border-stone-200 bg-white px-2 text-base font-black text-amber-800"><Flame className="h-5 w-5" />{combo}x</div>
         </div>
-
-        {/* Level Selector & Timer */}
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-black">
-            <span className="hidden sm:inline px-2 text-[10px] uppercase tracking-wide text-stone-500">
-              Demo level
-            </span>
-            {([1, 2, 3, 4, 5] as DifficultyTier[]).map((lv) => (
-              <button
-                key={lv}
-                onClick={() => startHarvestGame(lv)}
-                aria-label={`Demo override: start level ${lv}`}
-                aria-pressed={difficultyLevel === lv}
-                title="Manual demo override"
-                className={`px-2.5 py-1 rounded-lg transition-all ${
-                  difficultyLevel === lv
-                    ? 'bg-emerald-700 text-white shadow-sm'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                L{lv}
-              </button>
-            ))}
-          </div>
-
-          <div className="bg-amber-100 text-amber-950 font-black px-3 py-1.5 rounded-xl text-xs sm:text-sm border border-amber-300">
-            ⏳ {timeLeft}s
-          </div>
-        </div>
-      </div>
-
-      {/* Stats Bar */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-white rounded-2xl p-3 border border-stone-200 shadow-sm text-center">
-          <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider block">Leaves Plucked</span>
-          <p className="text-lg sm:text-xl font-black text-emerald-700 flex items-center justify-center gap-1">
-            <Leaf className="w-4 h-4 text-emerald-600" /> {harvestedCount}
-          </p>
-        </div>
-
-        <div className="bg-white rounded-2xl p-3 border border-stone-200 shadow-sm text-center">
-          <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider block">Score</span>
-          <p className="text-lg sm:text-xl font-black text-tea-800 flex items-center justify-center gap-1">
-            <Trophy className="w-4 h-4 text-assamGold-500" /> {totalScore}
-          </p>
-        </div>
-
-        <div className="bg-white rounded-2xl p-3 border border-stone-200 shadow-sm text-center">
-          <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider block">Combo</span>
-          <p className="text-lg sm:text-xl font-black text-amber-600 flex items-center justify-center gap-1">
-            <Flame className="w-4 h-4" /> {combo}x
-          </p>
-        </div>
-      </div>
 
       {/* Interactive Tea Bush Arena */}
-      <div className="relative w-full h-[400px] sm:h-[440px] rounded-3xl overflow-hidden shadow-xl border-4 border-tea-700 bg-gradient-to-b from-sky-100 via-emerald-50 to-tea-900 select-none">
+      <div className="relative h-[clamp(280px,calc(100dvh-245px),440px)] w-full select-none overflow-hidden rounded-3xl border-4 border-tea-700 bg-gradient-to-b from-sky-100 via-emerald-50 to-tea-900 shadow-xl">
         <div className="absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-tea-950 via-tea-800 to-transparent opacity-90" />
 
-        <div className="absolute bottom-4 left-4 text-white font-bold text-xs bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-xl">
-          🧺 Cane Basket Ready
+        <div className="absolute bottom-4 left-4 rounded-xl bg-black/55 px-3 py-2 text-base font-bold text-white backdrop-blur-sm">
+          🧺 {t.basketReady}
         </div>
 
         {activeItems.map((item) => (
@@ -301,16 +251,17 @@ export const ChaiHarvestGame: React.FC<ChaiHarvestGameProps> = ({ onBack }) => {
             }`}
           >
             <span className="text-3xl sm:text-4xl drop-shadow">{item.emoji}</span>
-            <span className="text-[10px] font-black text-stone-900 mt-1 bg-white/90 px-2 py-0.5 rounded-full shadow-sm">
+            <span className="mt-1 rounded-full bg-white/90 px-2 py-0.5 text-sm font-black text-stone-900 shadow-sm">
               {item.label}
             </span>
           </button>
         ))}
 
-        {activeItems.length === 0 && (
+        {!isRunning && !isGameOver && (
           <div className="absolute inset-0 flex items-center justify-center text-center p-4">
-            <div className="bg-white/90 backdrop-blur-sm p-4 rounded-2xl border border-tea-300 shadow-md">
-              <p className="text-sm font-black text-tea-900">Watching the morning tea bushes...</p>
+            <div className="max-w-sm rounded-3xl border-2 border-tea-400 bg-white/95 p-6 shadow-xl backdrop-blur-sm">
+              <p className="text-xl font-black text-tea-950">{t.readyToBegin}</p>
+              <button onClick={beginHarvestGame} className="tactile-btn mt-4 min-h-[56px] w-full rounded-2xl bg-tea-700 px-6 text-lg font-black text-white">{t.startGame}</button>
             </div>
           </div>
         )}
@@ -318,15 +269,13 @@ export const ChaiHarvestGame: React.FC<ChaiHarvestGameProps> = ({ onBack }) => {
 
       <GameResultModal
         isOpen={isGameOver}
-        score={finalScore}
         accuracy={finalAccuracy}
-        durationSeconds={durationSeconds}
-        difficultyLevel={difficultyLevel}
         difficultyDecision={difficultyDecision}
-        gameTitle="Chai Garden Harvest"
-        onPlayAgain={() => startHarvestGame()}
+        gameTitle={t.harvestTitle}
+        onPlayAgain={() => { void prepareHarvestGame(); }}
         onBackToMenu={onBack}
       />
-    </div>
+      </div>
+    </GameShell>
   );
 };

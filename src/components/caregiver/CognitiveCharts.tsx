@@ -10,7 +10,7 @@ import {
   Legend,
 } from 'recharts';
 import { aiEngine } from '../../services/aiEngine';
-import { AlertTriangle, ShieldCheck, TrendingUp } from 'lucide-react';
+import { Activity, ShieldCheck, TrendingUp } from 'lucide-react';
 import type { GameSession } from '../../types';
 
 interface CognitiveChartsProps {
@@ -19,6 +19,15 @@ interface CognitiveChartsProps {
 
 export const CognitiveCharts: React.FC<CognitiveChartsProps> = ({ sessions }) => {
   const metrics = aiEngine.computeCognitiveMetrics(sessions);
+  const needsSupport = metrics.engagementTrend === 'needs-support';
+  const variable = metrics.engagementTrend === 'variable';
+  const trendLabel = metrics.engagementTrend === 'insufficient-data'
+    ? 'More activity needed'
+    : metrics.engagementTrend === 'needs-support'
+      ? 'Needs more support'
+      : metrics.engagementTrend === 'variable'
+        ? 'Variable participation'
+        : 'Steady participation';
 
   // Format session data for Recharts (group by date or chronological session)
   const trajectoryData = sessions.slice(-10).map((s, idx) => ({
@@ -31,12 +40,12 @@ export const CognitiveCharts: React.FC<CognitiveChartsProps> = ({ sessions }) =>
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* AI Clinical Early Warning & Status Banner */}
+      {/* Non-diagnostic engagement status */}
       <div
         className={`rounded-3xl p-6 border-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
-          metrics.riskOfDecline === 'High'
+          needsSupport
             ? 'bg-rose-50 border-rose-400 text-rose-950'
-            : metrics.riskOfDecline === 'Moderate'
+            : variable
             ? 'bg-amber-50 border-amber-400 text-amber-950'
             : 'bg-emerald-50 border-emerald-400 text-emerald-950'
         }`}
@@ -44,15 +53,15 @@ export const CognitiveCharts: React.FC<CognitiveChartsProps> = ({ sessions }) =>
         <div className="flex items-start space-x-3">
           <div
             className={`p-3 rounded-2xl ${
-              metrics.riskOfDecline === 'High'
+              needsSupport
                 ? 'bg-rose-200 text-rose-800'
-                : metrics.riskOfDecline === 'Moderate'
+                : variable
                 ? 'bg-amber-200 text-amber-800'
                 : 'bg-emerald-200 text-emerald-800'
             }`}
           >
-            {metrics.riskOfDecline === 'High' ? (
-              <AlertTriangle className="w-6 h-6 animate-bounce" />
+            {needsSupport ? (
+              <Activity className="w-6 h-6" />
             ) : (
               <ShieldCheck className="w-6 h-6" />
             )}
@@ -60,19 +69,19 @@ export const CognitiveCharts: React.FC<CognitiveChartsProps> = ({ sessions }) =>
           <div>
             <div className="flex items-center space-x-2">
               <span className="text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white shadow-sm">
-                AI Cognitive Trajectory: {metrics.riskOfDecline} Risk
+                Engagement trend: {trendLabel}
               </span>
             </div>
-            <h3 className="text-lg font-black mt-1">Clinical AI Observation</h3>
+            <h3 className="text-lg font-black mt-1">Suggested caregiver support</h3>
             <p className="text-xs sm:text-sm font-medium mt-0.5 opacity-90">
-              {metrics.clinicalSummary}
+              {metrics.supportSummary}
             </p>
           </div>
         </div>
 
         <div className="shrink-0 bg-white/90 backdrop-blur-sm px-4 py-3 rounded-2xl shadow-sm border border-black/5 text-center">
           <span className="text-[10px] font-black uppercase tracking-wider text-stone-500 block">
-            Overall MoCA Composite
+            Recent engagement index
           </span>
           <span className="text-2xl sm:text-3xl font-black text-stone-900">
             {metrics.overallCognitiveScore}
@@ -81,7 +90,7 @@ export const CognitiveCharts: React.FC<CognitiveChartsProps> = ({ sessions }) =>
         </div>
       </div>
 
-      {/* 4 MoCA / MMSE Domain Scores Grid */}
+      {/* Activity-derived engagement indicators */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
           { label: 'Memory Retention', val: metrics.memoryIndex, color: 'text-tea-800', barColor: 'bg-tea-600' },
@@ -108,16 +117,16 @@ export const CognitiveCharts: React.FC<CognitiveChartsProps> = ({ sessions }) =>
         ))}
       </div>
 
-      {/* Recharts Area Chart: 7-Day Cognitive Performance Trajectory */}
+      {/* Recent game activity trend */}
       <div className="bg-white rounded-3xl p-6 border border-stone-200 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h4 className="text-base sm:text-lg font-black text-stone-900 flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-tea-700" />
-              <span>Cognitive Performance Trajectory (Past Sessions)</span>
+              <span>Cognitive Engagement Trends</span>
             </h4>
             <p className="text-xs text-stone-500">
-              Tracks longitudinal score stability and dynamic difficulty adjustment
+              Shows recent game accuracy and on-device difficulty adjustments. It is not a diagnostic score.
             </p>
           </div>
         </div>

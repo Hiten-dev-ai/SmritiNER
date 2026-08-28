@@ -55,7 +55,7 @@ export interface PatientProfile {
   notes?: string;
 }
 
-export type GameType = 
+export type JourneyGameType = 
   | 'majuli_memory'
   | 'tea_tray_recall'
   | 'market_list_recall'
@@ -63,6 +63,10 @@ export type GameType =
   | 'daily_steps'
   | 'weave_pattern'
   | 'memory_lane'
+  | 'mahjong_memory';
+
+export type GameType = 
+  | JourneyGameType
   | 'chai_harvest'
   | 'daily_sequence'
   | 'reminiscence_album';
@@ -76,6 +80,10 @@ export interface GameDifficultyProfile {
   optionCount: number;
   roundCount: number;
   allowReplay: boolean;
+  tileCount?: number;
+  pairCount?: number;
+  mode?: 'visible-match' | 'hidden-match' | 'shuffle-memory';
+  shuffleCount?: number;
 }
 
 export interface GameDefinition {
@@ -93,6 +101,69 @@ export interface GameRoundResult {
   mistakes: number;
   hintsUsed: number;
   contentVariantId: string;
+  mode?: 'visible-match' | 'hidden-match' | 'shuffle-memory';
+  tileCount?: number;
+  pairCount?: number;
+  previewDurationMs?: number;
+  shuffleCount?: number;
+  effectiveMemoryLoad?: number;
+  supportAdjustment?: 'none' | 'longer-preview' | 'fewer-tiles' | 'pair-reveal';
+}
+
+export interface GameProgress {
+  patientId: string;
+  gameType: JourneyGameType;
+  unlockedStage: number;       // Highest available stage, 1–12
+  recommendedStage: number;    // Default stage suggested by the app, 1–12
+  lastPlayedStage?: number;
+  lastStageSource?: 'recommended' | 'manual';
+  lastDecision:
+    | 'start'
+    | 'steady'
+    | 'stage-unlocked'
+    | 'gentler'
+    | 'manual-replay'
+    | 'highest-stage';
+  reasonText: string;
+  consecutiveStrong?: number;
+  consecutiveSupport?: number;
+  updatedAt: string;
+}
+
+export interface DifficultyDecision {
+  playedStage: number;
+  previousRecommendedStage: number;
+  nextRecommendedStage: number;
+  previousUnlockedStage: number;
+  unlockedStage: number;
+  outcome: 'strong' | 'steady' | 'support-needed' | 'ignored';
+  reasonCode:
+    | 'first-session'
+    | 'building-evidence'
+    | 'stage-unlocked'
+    | 'remain-steady'
+    | 'gentler-next-time'
+    | 'manual-comfort-replay'
+    | 'highest-stage';
+}
+
+export type SoundEvent =
+  | 'tap'
+  | 'tile-pick'
+  | 'tile-reveal'
+  | 'pair-match'
+  | 'gentle-nudge'
+  | 'hint'
+  | 'round-complete'
+  | 'stage-unlocked'
+  | 'journey-complete'
+  | 'reminder';
+
+export interface AudioPreferences {
+  effectsEnabled: boolean;
+  effectsVolume: 'low' | 'medium' | 'high';
+  ambienceEnabled: boolean;
+  reminderEnabled: boolean;
 }
 
 export type DifficultyTier = 1 | 2 | 3 | 4 | 5;
@@ -124,6 +195,7 @@ export interface GameSession {
   roundResults?: GameRoundResult[];
   startedAt?: string;
   clientEventId?: string;
+  stageSource?: 'recommended' | 'manual';
 }
 
 export interface JourneyGameSession {
@@ -145,6 +217,7 @@ export interface JourneyGameSession {
   startedAt: string;
   completedAt: string;
   clientEventId: string;
+  stageSource?: 'recommended' | 'manual';
 }
 
 export interface CaregiverObservation {

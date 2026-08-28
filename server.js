@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import {
   addGameSession, addObservation, authenticate, createPatient, createSession, deactivatePatient,
   deleteSession, getPatientAccess, getUserBySession, listAccessiblePatients, listCollection,
-  listGameSessions, listObservations, listShares, registerCaregiver, resetPatientPassword,
+  listGameProgress, listGameSessions, listObservations, listShares, registerCaregiver, resetPatientPassword,
   sharePatient, unsharePatient, updatePatient, upsertCollectionItem,
 } from './server/store.js';
 
@@ -68,7 +68,7 @@ const handleError = (res, error) => {
   return res.status(500).json({ error: 'The request could not be completed.' });
 };
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', app: 'SmritiNER', storage: 'sqlite', authentication: 'server-session' }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', app: 'SmritiNER', storage: 'sqlite', authentication: 'server-session', schemaVersion: '2.0.0' }));
 app.post('/api/auth/login', (req, res) => {
   const key = req.ip || 'unknown';
   const attempt = loginAttempts.get(key) || { count: 0, resetAt: Date.now() + 15 * 60000 };
@@ -108,12 +108,14 @@ app.post('/api/patients', authRequired, caregiverRequired, (req, res) => {
   try {
     const input = {
       name: requiredText(req.body.name, 'Patient name', 2), username: requiredText(req.body.username, 'Patient username', 3),
-      password: requiredText(req.body.password, 'Temporary password', 8), age: Number(req.body.age), dateOfBirth: req.body.dateOfBirth,
+      password: requiredText(req.body.password, 'Temporary password', 4), age: Number(req.body.age), dateOfBirth: req.body.dateOfBirth,
       gender: req.body.gender, preferredLanguage: req.body.preferredLanguage, state: requiredText(req.body.state, 'State'),
       district: requiredText(req.body.district, 'District'), emergencyContactName: requiredText(req.body.emergencyContactName, 'Emergency contact name'),
       emergencyContactPhone: requiredText(req.body.emergencyContactPhone, 'Emergency contact phone'), clinicianCondition: req.body.clinicianCondition,
-      careNotes: req.body.careNotes,
+      careNotes: req.body.careNotes, clientRequestId: req.body.clientRequestId ? String(req.body.clientRequestId) : undefined,
     };
+    if (!/^[a-z0-9._-]+$/i.test(input.username)) throw new Error('Username may use letters, numbers, dots, dashes, and underscores.');
+    if (input.password.length > 64) throw new Error('Password must not exceed 64 characters.');
     if (!Number.isInteger(input.age) || input.age < 45 || input.age > 120) throw new Error('Enter a valid age between 45 and 120.');
     res.status(201).json({ patient: createPatient(req.authUser.id, input) });
   } catch (error) { handleError(res, error); }
@@ -134,16 +136,20 @@ app.delete('/api/patients/:patientId/shares/:caregiverId', authRequired, caregiv
   res.status(204).end();
 });
 app.post('/api/patients/:patientId/reset-password', authRequired, caregiverRequired, withPatientAccess('owner'), (req, res) => {
-  try { resetPatientPassword(req.params.patientId, requiredText(req.body.password, 'Temporary password', 8)); res.status(204).end(); }
+  try { resetPatientPassword(req.params.patientId, requiredText(req.body.password, 'Temporary password', 4)); res.status(204).end(); }
   catch (error) { handleError(res, error); }
 });
 
+app.get('/api/patients/:patientId/game-progress', authRequired, withPatientAccess(), (req, res) => {
+  res.json({ progress: listGameProgress(req.params.patientId) });
+});
 app.get('/api/patients/:patientId/game-sessions', authRequired, withPatientAccess(), (req, res) => res.json({ sessions: listGameSessions(req.params.patientId) }));
 app.post('/api/patients/:patientId/game-sessions', authRequired, withPatientAccess(), (req, res) => {
   try {
-    const validGames = new Set(['majuli_memory', 'tea_tray_recall', 'market_list_recall', 'missing_object', 'daily_steps', 'weave_pattern', 'memory_lane']);
+    const validGames = new Set(['majuli_memory', 'tea_tray_recall', 'market_list_recall', 'missing_object', 'daily_steps', 'weave_pattern', 'memory_lane', 'mahjong_memory']);
     if (!validGames.has(req.body.gameType) || !Number.isInteger(req.body.stage) || req.body.stage < 1 || req.body.stage > 12 || !Number.isFinite(req.body.accuracy) || req.body.accuracy < 0 || req.body.accuracy > 100) throw new Error('Enter a valid game session.');
-    res.status(201).json({ id: addGameSession(req.params.patientId, req.body) });
+    const result = addGameSession(req.params.patientId, req.body);
+    res.status(result.duplicate ? 200 : 201).json(result);
   } catch (error) { handleError(res, error); }
 });
 for (const collection of ['reminders', 'hydration', 'photos']) {

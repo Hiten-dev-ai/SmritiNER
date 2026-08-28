@@ -100,6 +100,27 @@ database.exec(`
     observed_at TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS patient_creation_requests (
+    client_request_id TEXT NOT NULL,
+    caretaker_id TEXT NOT NULL,
+    patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (client_request_id, caretaker_id)
+  );
+  CREATE TABLE IF NOT EXISTS patient_game_progress (
+    patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    game_type TEXT NOT NULL,
+    unlocked_stage INTEGER NOT NULL DEFAULT 1,
+    recommended_stage INTEGER NOT NULL DEFAULT 1,
+    last_played_stage INTEGER,
+    last_stage_source TEXT,
+    last_decision TEXT NOT NULL DEFAULT 'start',
+    reason_text TEXT NOT NULL DEFAULT '',
+    consecutive_strong INTEGER NOT NULL DEFAULT 0,
+    consecutive_support INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (patient_id, game_type)
+  );
 `);
 
 const nowIso = () => new Date().toISOString();
@@ -268,7 +289,47 @@ export function getPatientAccess(user, patientId) {
   return database.prepare('SELECT access_role FROM patient_caregivers WHERE patient_id = ? AND caregiver_id = ?').get(patientId, user.id)?.access_role || null;
 }
 
+const ALL_JOURNEY_GAMES = [
+  'majuli_memory', 'tea_tray_recall', 'market_list_recall', 'missing_object',
+  'daily_steps', 'weave_pattern', 'memory_lane', 'mahjong_memory'
+];
+
+export function listGameProgress(patientId) {
+  const rows = database.prepare('SELECT * FROM patient_game_progress WHERE patient_id = ?').all(patientId);
+  const foundMap = new Map(rows.map((r) => [r.game_type, r]));
+  const result = [];
+  for (const gameType of ALL_JOURNEY_GAMES) {
+    let row = foundMap.get(gameType);
+    if (!row) {
+      database.prepare(`INSERT INTO patient_game_progress (patient_id, game_type, unlocked_stage, recommended_stage, last_decision, reason_text, consecutive_strong, consecutive_support, updated_at)
+        VALUES (?, ?, 1, 1, 'start', 'Starting at stage 1 baseline.', 0, 0, ?)`).run(patientId, gameType, nowIso());
+      row = database.prepare('SELECT * FROM patient_game_progress WHERE patient_id = ? AND game_type = ?').get(patientId, gameType);
+    }
+    result.push({
+      patientId: row.patient_id,
+      gameType: row.game_type,
+      unlockedStage: row.unlocked_stage,
+      recommendedStage: row.recommended_stage,
+      lastPlayedStage: row.last_played_stage || undefined,
+      lastStageSource: row.last_stage_source || undefined,
+      lastDecision: row.last_decision,
+      reasonText: row.reason_text,
+      consecutiveStrong: row.consecutive_strong,
+      consecutiveSupport: row.consecutive_support,
+      updatedAt: row.updated_at,
+    });
+  }
+  return result;
+}
+
 export function createPatient(ownerId, input) {
+  if (input.clientRequestId) {
+    const existing = database.prepare('SELECT patient_id FROM patient_creation_requests WHERE client_request_id = ? AND caretaker_id = ?').get(input.clientRequestId, ownerId);
+    if (existing) {
+      return listAccessiblePatients({ id: ownerId, role: 'caregiver' }).find((patient) => patient.id === existing.patient_id);
+    }
+  }
+
   database.exec('BEGIN IMMEDIATE');
   try {
     const userId = insertUser({ role: 'patient', username: input.username, displayName: input.name, password: input.password });
@@ -282,6 +343,18 @@ export function createPatient(ownerId, input) {
       );
     database.prepare('INSERT INTO patient_caregivers (patient_id, caregiver_id, access_role, created_at) VALUES (?, ?, ?, ?)')
       .run(patientId, ownerId, 'owner', nowIso());
+
+    // Seed progress records for all 8 games
+    for (const gameType of ALL_JOURNEY_GAMES) {
+      database.prepare(`INSERT INTO patient_game_progress (patient_id, game_type, unlocked_stage, recommended_stage, last_decision, reason_text, consecutive_strong, consecutive_support, updated_at)
+        VALUES (?, ?, 1, 1, 'start', 'Starting at stage 1 baseline.', 0, 0, ?)`).run(patientId, gameType, nowIso());
+    }
+
+    if (input.clientRequestId) {
+      database.prepare('INSERT INTO patient_creation_requests (client_request_id, caretaker_id, patient_id, created_at) VALUES (?, ?, ?, ?)')
+        .run(input.clientRequestId, ownerId, patientId, nowIso());
+    }
+
     database.exec('COMMIT');
     return listAccessiblePatients({ id: ownerId, role: 'caregiver' }).find((patient) => patient.id === patientId);
   } catch (error) {
@@ -348,18 +421,220 @@ export function listGameSessions(patientId) {
   }));
 }
 
+export function evaluateSessionOutcome(session, currentProgress) {
+  const totalRounds = session.roundResults?.length || 3;
+  const scoredRounds = session.roundResults?.filter((r) => r.responseMs > 0).length || 0;
+  if (session.completionStatus === 'abandoned' && scoredRounds === 0) {
+    return { outcome: 'ignored', isFrontier: false };
+  }
+  const isFrontier = session.stage >= currentProgress.unlockedStage || session.stage >= currentProgress.recommendedStage;
+  const supportNeeded =
+    session.accuracy < 60 ||
+    session.hintsUsed >= Math.ceil(totalRounds / 2) ||
+    session.mistakes >= totalRounds ||
+    (session.completionStatus === 'abandoned' && scoredRounds >= 1);
+  if (supportNeeded) return { outcome: 'support-needed', isFrontier };
+  const isStrong =
+    session.completionStatus === 'completed' &&
+    session.accuracy >= 80 &&
+    session.hintsUsed <= 1 &&
+    session.mistakes <= Math.floor(totalRounds / 3) &&
+    isFrontier;
+  if (isStrong) return { outcome: 'strong', isFrontier: true };
+  return { outcome: 'steady', isFrontier };
+}
+
+export function computeNextProgress(currentProgress, session, stageSource = 'recommended') {
+  const playedStage = session.stage;
+  const prevUnlocked = currentProgress.unlockedStage;
+  const prevRecommended = currentProgress.recommendedStage;
+  const evaluation = evaluateSessionOutcome(session, currentProgress);
+
+  let nextUnlocked = prevUnlocked;
+  let nextRecommended = prevRecommended;
+  let consecStrong = currentProgress.consecutiveStrong || 0;
+  let consecSupport = currentProgress.consecutiveSupport || 0;
+  let reasonCode = 'remain-steady';
+  let reasonText = 'Steady performance recorded. Continuing at current stage.';
+  let lastDecision = 'steady';
+
+  if (evaluation.outcome === 'ignored') {
+    return {
+      updatedProgress: {
+        ...currentProgress,
+        lastPlayedStage: playedStage,
+        lastStageSource: stageSource,
+        updatedAt: nowIso(),
+      },
+      decision: { playedStage, previousRecommendedStage: prevRecommended, nextRecommendedStage: prevRecommended, previousUnlockedStage: prevUnlocked, unlockedStage: prevUnlocked, outcome: 'ignored', reasonCode: 'remain-steady' },
+    };
+  }
+
+  if (stageSource === 'manual' && playedStage < prevUnlocked) {
+    if (evaluation.outcome === 'support-needed') {
+      consecSupport += 1;
+      consecStrong = 0;
+      if (consecSupport >= 2) {
+        nextRecommended = Math.max(1, prevRecommended - 1);
+        consecSupport = 0;
+        reasonCode = 'gentler-next-time';
+        reasonText = 'Recommending a gentler stage after recent practice sessions.';
+        lastDecision = 'gentler';
+      } else {
+        reasonCode = 'building-evidence';
+        reasonText = 'Comfort replay recorded.';
+        lastDecision = 'manual-replay';
+      }
+    } else {
+      consecStrong = 0;
+      consecSupport = 0;
+      reasonCode = 'manual-comfort-replay';
+      reasonText = 'Comfort replay completed. All unlocked stages remain available.';
+      lastDecision = 'manual-replay';
+    }
+  } else if (evaluation.outcome === 'strong') {
+    consecStrong += 1;
+    consecSupport = 0;
+    if (consecStrong >= 2) {
+      consecStrong = 0;
+      if (playedStage === prevUnlocked) {
+        if (prevUnlocked >= 12) {
+          nextUnlocked = 12;
+          nextRecommended = 12;
+          reasonCode = 'highest-stage';
+          reasonText = 'Outstanding mastery! You are at the highest stage.';
+          lastDecision = 'highest-stage';
+        } else {
+          nextUnlocked = Math.min(12, prevUnlocked + 1);
+          nextRecommended = nextUnlocked;
+          reasonCode = 'stage-unlocked';
+          reasonText = `Wonderful consistency! Stage ${nextUnlocked} is now unlocked and ready.`;
+          lastDecision = 'stage-unlocked';
+        }
+      } else if (playedStage < prevUnlocked) {
+        nextRecommended = Math.min(prevUnlocked, prevRecommended + 1);
+        reasonCode = 'stage-unlocked';
+        reasonText = `Great focus! Recommending Stage ${nextRecommended}.`;
+        lastDecision = 'steady';
+      }
+    } else {
+      reasonCode = 'building-evidence';
+      reasonText = 'Strong session! One more consistent session at this stage will unlock the next.';
+      lastDecision = 'steady';
+    }
+  } else if (evaluation.outcome === 'support-needed') {
+    consecSupport += 1;
+    consecStrong = 0;
+    if (consecSupport >= 2) {
+      consecSupport = 0;
+      nextRecommended = Math.max(1, prevRecommended - 1);
+      reasonCode = 'gentler-next-time';
+      reasonText = 'A gentler stage is recommended next time for your comfort.';
+      lastDecision = 'gentler';
+    } else {
+      reasonCode = 'building-evidence';
+      reasonText = 'Support noted. Practice comfortably at your own pace.';
+      lastDecision = 'steady';
+    }
+  } else {
+    consecStrong = 0;
+    consecSupport = 0;
+    reasonCode = 'remain-steady';
+    reasonText = 'Steady progress. Continuing at the current stage.';
+    lastDecision = 'steady';
+  }
+
+  nextUnlocked = Math.max(1, Math.min(12, nextUnlocked));
+  nextRecommended = Math.max(1, Math.min(nextUnlocked, nextRecommended));
+
+  const updatedProgress = {
+    patientId: currentProgress.patientId,
+    gameType: currentProgress.gameType,
+    unlockedStage: nextUnlocked,
+    recommendedStage: nextRecommended,
+    lastPlayedStage: playedStage,
+    lastStageSource: stageSource,
+    lastDecision,
+    reasonText,
+    consecutiveStrong: consecStrong,
+    consecutiveSupport: consecSupport,
+    updatedAt: nowIso(),
+  };
+
+  const decision = {
+    playedStage,
+    previousRecommendedStage: prevRecommended,
+    nextRecommendedStage: nextRecommended,
+    previousUnlockedStage: prevUnlocked,
+    unlockedStage: nextUnlocked,
+    outcome: evaluation.outcome,
+    reasonCode,
+  };
+
+  return { updatedProgress, decision };
+}
+
 export function addGameSession(patientId, input) {
+  const clientEventId = input.clientEventId || input.id;
+  if (clientEventId) {
+    const existing = database.prepare('SELECT id FROM game_sessions WHERE client_event_id = ?').get(clientEventId);
+    if (existing) {
+      return { id: existing.id, progress: listGameProgress(patientId), duplicate: true };
+    }
+  }
+
   const id = input.id || randomUUID();
-  database.prepare(`INSERT INTO game_sessions (id, patient_id, game_type, domain, stage, accuracy, duration_seconds, memory_load,
-    mistakes, hints_used, median_response_ms, response_variability_ms, completion_status, content_variant_ids, round_results,
-    started_at, completed_at, client_event_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(client_event_id) DO NOTHING`).run(
-      id, patientId, input.gameType, input.domain, input.stage, input.accuracy, input.durationSeconds, input.memoryLoad,
-      input.mistakes, input.hintsUsed, input.medianResponseMs, input.responseVariabilityMs, input.completionStatus || 'completed',
-      JSON.stringify(input.contentVariantIds || []), JSON.stringify(input.roundResults || []), input.startedAt, input.completedAt,
-      input.clientEventId || id, nowIso()
-    );
-  return id;
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    database.prepare(`INSERT INTO game_sessions (id, patient_id, game_type, domain, stage, accuracy, duration_seconds, memory_load,
+      mistakes, hints_used, median_response_ms, response_variability_ms, completion_status, content_variant_ids, round_results,
+      started_at, completed_at, client_event_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(client_event_id) DO NOTHING`).run(
+        id, patientId, input.gameType, input.domain, input.stage, input.accuracy, input.durationSeconds, input.memoryLoad,
+        input.mistakes, input.hintsUsed, input.medianResponseMs, input.responseVariabilityMs, input.completionStatus || 'completed',
+        JSON.stringify(input.contentVariantIds || []), JSON.stringify(input.roundResults || []), input.startedAt, input.completedAt,
+        clientEventId || id, nowIso()
+      );
+
+    // Get current progress for game
+    const progressRows = listGameProgress(patientId);
+    const currentProgress = progressRows.find((p) => p.gameType === input.gameType) || {
+      patientId,
+      gameType: input.gameType,
+      unlockedStage: 1,
+      recommendedStage: 1,
+      lastDecision: 'start',
+      reasonText: '',
+      consecutiveStrong: 0,
+      consecutiveSupport: 0,
+      updatedAt: nowIso(),
+    };
+
+    const { updatedProgress, decision } = computeNextProgress(currentProgress, input, input.stageSource || 'recommended');
+
+    database.prepare(`INSERT INTO patient_game_progress (patient_id, game_type, unlocked_stage, recommended_stage, last_played_stage, last_stage_source, last_decision, reason_text, consecutive_strong, consecutive_support, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(patient_id, game_type) DO UPDATE SET
+        unlocked_stage = excluded.unlocked_stage,
+        recommended_stage = excluded.recommended_stage,
+        last_played_stage = excluded.last_played_stage,
+        last_stage_source = excluded.last_stage_source,
+        last_decision = excluded.last_decision,
+        reason_text = excluded.reason_text,
+        consecutive_strong = excluded.consecutive_strong,
+        consecutive_support = excluded.consecutive_support,
+        updated_at = excluded.updated_at`).run(
+          patientId, input.gameType, updatedProgress.unlockedStage, updatedProgress.recommendedStage,
+          updatedProgress.lastPlayedStage || null, updatedProgress.lastStageSource || null, updatedProgress.lastDecision,
+          updatedProgress.reasonText, updatedProgress.consecutiveStrong || 0, updatedProgress.consecutiveSupport || 0, nowIso()
+        );
+
+    database.exec('COMMIT');
+    return { id, progress: listGameProgress(patientId), decision, duplicate: false };
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 const collectionTables = { reminders: 'reminders', hydration: 'hydration_logs', photos: 'reminiscence_items' };

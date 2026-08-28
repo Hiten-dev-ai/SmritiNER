@@ -72,4 +72,94 @@ describe.sequential('server-backed multi-user access', () => {
     expect((await photos.json()).items).toHaveLength(1);
     expect((await fetch(`${origin}${item.imageUrl}`, { headers: { Cookie: patient.cookie } })).status).toBe(200);
   });
+
+  it('creates patient with 4-character password and supports clientRequestId idempotency', async () => {
+    const caretaker = await login('hiten', '1234');
+    const clientRequestId = `req-test-${Date.now()}`;
+    const payload = {
+      name: 'Ramen Borah',
+      username: 'ramen_borah',
+      password: '1234', // 4 chars permitted for elder accessibility
+      age: 72,
+      gender: 'Male',
+      preferredLanguage: 'Assamese',
+      state: 'Assam',
+      district: 'Jorhat',
+      emergencyContactName: 'Anil Borah',
+      emergencyContactPhone: '+919876543210',
+      clientRequestId,
+    };
+
+    // First creation call
+    const res1 = await fetch(`${origin}/api/patients`, {
+      method: 'POST',
+      headers: { Cookie: caretaker.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    expect(res1.status).toBe(201);
+    const body1 = await res1.json();
+    expect(body1.patient.name).toBe('Ramen Borah');
+    expect(body1.patient.username).toBe('ramen_borah');
+
+    // Idempotent retry with same clientRequestId returns existing patient without error
+    const res2 = await fetch(`${origin}/api/patients`, {
+      method: 'POST',
+      headers: { Cookie: caretaker.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    expect(res2.status).toBe(201);
+    const body2 = await res2.json();
+    expect(body2.patient.id).toBe(body1.patient.id);
+
+    // Patient can log in with 4-character password
+    const patientLogin = await login('ramen_borah', '1234');
+    expect(patientLogin.response.status).toBe(200);
+    expect(patientLogin.body.user.displayName).toBe('Ramen Borah');
+  });
+
+  it('provides 8 game progression records and updates progress on game session submission', async () => {
+    const caretaker = await login('hiten', '1234');
+
+    // Fetch initial progress for pat-ner-001
+    const progressRes = await fetch(`${origin}/api/patients/pat-ner-001/game-progress`, {
+      headers: { Cookie: caretaker.cookie },
+    });
+    expect(progressRes.status).toBe(200);
+    const progressBody = await progressRes.json();
+    expect(progressBody.progress).toHaveLength(8);
+    const mahjongProg = progressBody.progress.find((p) => p.gameType === 'mahjong_memory');
+    expect(mahjongProg).toBeDefined();
+    expect(mahjongProg.unlockedStage).toBeGreaterThanOrEqual(1);
+
+    // Submit Mahjong game session
+    const sessionPayload = {
+      gameType: 'mahjong_memory',
+      domain: 'visual-memory',
+      stage: 1,
+      accuracy: 100,
+      durationSeconds: 45,
+      memoryLoad: 3,
+      mistakes: 0,
+      hintsUsed: 0,
+      medianResponseMs: 1400,
+      responseVariabilityMs: 120,
+      completionStatus: 'completed',
+      roundResults: [
+        { round: 1, correct: true, responseMs: 1400, mistakes: 0, hintsUsed: 0, contentVariantId: 'm1' },
+      ],
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      clientEventId: `mahjong-event-${Date.now()}`,
+    };
+
+    const sessionRes = await fetch(`${origin}/api/patients/pat-ner-001/game-sessions`, {
+      method: 'POST',
+      headers: { Cookie: caretaker.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify(sessionPayload),
+    });
+    expect(sessionRes.status).toBe(201);
+    const sessionBody = await sessionRes.json();
+    expect(sessionBody.progress).toBeDefined();
+    expect(sessionBody.decision).toBeDefined();
+  });
 });

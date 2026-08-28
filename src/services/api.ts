@@ -1,4 +1,4 @@
-import type { AuthenticatedPatient, CaregiverObservation, JourneyGameSession, PatientCaregiverAccess, ReminiscencePhoto, UserAccount } from '../types';
+import type { AuthenticatedPatient, CaregiverObservation, DifficultyDecision, GameProgress, JourneyGameSession, PatientCaregiverAccess, ReminiscencePhoto, UserAccount } from '../types';
 
 export class ApiError extends Error {
   status: number;
@@ -34,8 +34,9 @@ export const api = {
   sharePatient: (patientId: string, identifier: string) => request<{ share: PatientCaregiverAccess }>(`/api/patients/${patientId}/shares`, { method: 'POST', body: JSON.stringify({ identifier }) }),
   unsharePatient: (patientId: string, caregiverId: string) => request<void>(`/api/patients/${patientId}/shares/${caregiverId}`, { method: 'DELETE' }),
   resetPatientPassword: (patientId: string, password: string) => request<void>(`/api/patients/${patientId}/reset-password`, { method: 'POST', body: JSON.stringify({ password }) }),
+  getGameProgress: (patientId: string) => request<{ progress: GameProgress[] }>(`/api/patients/${patientId}/game-progress`),
   listSessions: (patientId: string) => request<{ sessions: JourneyGameSession[] }>(`/api/patients/${patientId}/game-sessions`),
-  addSession: (patientId: string, session: JourneyGameSession) => request<{ id: string }>(`/api/patients/${patientId}/game-sessions`, { method: 'POST', body: JSON.stringify(session) }),
+  addSession: (patientId: string, session: JourneyGameSession) => request<{ id: string; progress?: GameProgress[]; decision?: DifficultyDecision; duplicate?: boolean }>(`/api/patients/${patientId}/game-sessions`, { method: 'POST', body: JSON.stringify(session) }),
   listCollection: <T>(patientId: string, collection: 'reminders' | 'hydration' | 'photos') => request<{ items: T[] }>(`/api/patients/${patientId}/${collection}`),
   saveCollectionItem: <T>(patientId: string, collection: 'reminders' | 'hydration' | 'photos', item: T) => request<{ item: T }>(`/api/patients/${patientId}/${collection}`, { method: 'POST', body: JSON.stringify(item) }),
   uploadPhoto: (patientId: string, input: { dataUrl: string; title: string; relationshipOrPlace: string; year?: string; memoryPromptQuestion: string; correctAnswer: string; audioPromptHint?: string }) => request<{ item: ReminiscencePhoto }>(`/api/patients/${patientId}/photos/upload`, { method: 'POST', body: JSON.stringify(input) }),

@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { AuthenticatedPatient, FontSizeScale, ThemeMode, UserAccount } from '../types';
+import type { AudioPreferences, AuthenticatedPatient, FontSizeScale, GameProgress, ThemeMode, UserAccount } from '../types';
 import { api, ApiError } from '../services/api';
 import { audioManager } from '../services/audioManager';
 import { translations, type LanguageCode, type TranslationDictionary } from '../services/translations';
@@ -17,8 +17,12 @@ interface AppContextType {
   setCurrentPatient: (patient: AuthenticatedPatient) => void;
   login: (identifier: string, password: string) => Promise<boolean>;
   registerCaregiver: (input: RegisterInput) => Promise<boolean>;
+  createPatient: (input: Record<string, unknown>) => Promise<AuthenticatedPatient>;
   logout: () => Promise<void>;
   refreshPatients: () => Promise<void>;
+  gameProgress: Record<string, GameProgress>;
+  refreshGameProgress: () => Promise<void>;
+  setLocalGameProgress: (progress: GameProgress[]) => void;
   isOfflineSession: boolean;
   theme: ThemeMode;
   setTheme: (theme: ThemeMode) => void;
@@ -27,6 +31,8 @@ interface AppContextType {
   isOnline: boolean;
   isAmbientPlaying: boolean;
   toggleAmbientSound: () => void;
+  audioPreferences: AudioPreferences;
+  setAudioPreferences: (prefs: Partial<AudioPreferences>) => void;
   selectedLanguage: LanguageCode;
   setSelectedLanguage: (lang: LanguageCode) => void;
   t: TranslationDictionary;
@@ -69,6 +75,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isReadingAloud, setIsReadingAloud] = useState(false);
   const [isAmbientPlaying, setIsAmbientPlaying] = useState(false);
   const [reminderSoundEnabled, setReminderSoundEnabledState] = useState(() => localStorage.getItem('smriti-reminder-sound') !== 'false');
+  const [gameProgress, setGameProgressState] = useState<Record<string, GameProgress>>({});
+  const [audioPreferences, setAudioPreferencesState] = useState<AudioPreferences>(() => audioManager.preferences);
   const speechSupported = readAloudService.isSupported();
 
   const applyAuth = useCallback((nextUser: UserAccount, nextPatients: AuthenticatedPatient[], offline = false) => {
@@ -78,6 +86,36 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setAuthStatus('authenticated'); setAuthError(null);
     localStorage.setItem(authCacheKey, JSON.stringify({ user: nextUser, patients: nextPatients, selectedPatientId: selected?.id }));
   }, []);
+
+  const refreshGameProgress = useCallback(async () => {
+    if (!currentPatient) return;
+    try {
+      const payload = await api.getGameProgress(currentPatient.id);
+      if (payload?.progress) {
+        const map: Record<string, GameProgress> = {};
+        payload.progress.forEach((p) => { map[p.gameType] = p; });
+        setGameProgressState(map);
+      }
+    } catch {
+      // offline fallback
+    }
+  }, [currentPatient]);
+
+  const setLocalGameProgress = useCallback((progressList: GameProgress[]) => {
+    setGameProgressState((prev) => {
+      const next = { ...prev };
+      progressList.forEach((p) => { next[p.gameType] = p; });
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (currentPatient) {
+      void refreshGameProgress();
+    } else {
+      setGameProgressState({});
+    }
+  }, [currentPatient, refreshGameProgress]);
 
   useEffect(() => {
     let active = true;
@@ -108,6 +146,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try { const payload = await api.registerCaregiver(input); applyAuth(payload.user, payload.patients); return true; }
     catch (error) { setAuthError(error instanceof Error ? error.message : 'Unable to create account.'); return false; }
   };
+  const createPatient = async (input: Record<string, unknown>): Promise<AuthenticatedPatient> => {
+    const payload = await api.createPatient(input);
+    const newPatient = payload.patient;
+    setPatients((prev) => {
+      const filtered = prev.filter((p) => p.id !== newPatient.id);
+      return [...filtered, newPatient];
+    });
+    setCurrentPatientState(newPatient);
+    if (user) {
+      localStorage.setItem(authCacheKey, JSON.stringify({ user, patients: [...patients.filter((p) => p.id !== newPatient.id), newPatient], selectedPatientId: newPatient.id }));
+    }
+    return newPatient;
+  };
   const logout = async () => {
     try { if (!isOfflineSession) await api.logout(); } catch { /* local logout remains available */ }
     const hasPendingResults = Object.keys(localStorage).some((key) => key.startsWith('smriti-session-outbox-') && localStorage.getItem(key) !== '[]');
@@ -123,6 +174,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setCurrentPatientState(patient);
     if (user) localStorage.setItem(authCacheKey, JSON.stringify({ user, patients, selectedPatientId: patient.id }));
   };
+  const setAudioPreferences = (prefs: Partial<AudioPreferences>) => {
+    audioManager.setPreferences(prefs);
+    setAudioPreferencesState({ ...audioManager.preferences });
+  };
   const stopReadAloud = useCallback(() => { readAloudService.stop(); setIsReadingAloud(false); }, []);
   const readAloud = useCallback((text: string) => {
     stopReadAloud();
@@ -132,7 +187,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const toggleAmbientSound = () => { audioManager.playTap(); setIsAmbientPlaying(audioManager.toggleAmbientSoundscape()); };
   const setReminderSoundEnabled = (enabled: boolean) => { setReminderSoundEnabledState(enabled); localStorage.setItem('smriti-reminder-sound', String(enabled)); };
   const t = translations[selectedLanguage] || translations.English;
-  const value: AppContextType = { authStatus, authError, user, patients, currentPatient, setCurrentPatient, login, registerCaregiver, logout, refreshPatients, isOfflineSession, theme, setTheme, fontSize, setFontSize, isOnline, isAmbientPlaying, toggleAmbientSound, selectedLanguage, setSelectedLanguage, t, isGameActive, setGameActive, isReadingAloud, speechSupported, readAloud, stopReadAloud, reminderSoundEnabled, setReminderSoundEnabled };
+  const value: AppContextType = {
+    authStatus, authError, user, patients, currentPatient, setCurrentPatient,
+    login, registerCaregiver, createPatient, logout, refreshPatients,
+    gameProgress, refreshGameProgress, setLocalGameProgress,
+    isOfflineSession, theme, setTheme, fontSize, setFontSize, isOnline,
+    isAmbientPlaying, toggleAmbientSound, audioPreferences, setAudioPreferences,
+    selectedLanguage, setSelectedLanguage, t, isGameActive, setGameActive,
+    isReadingAloud, speechSupported, readAloud, stopReadAloud,
+    reminderSoundEnabled, setReminderSoundEnabled
+  };
 
   return <AppContext.Provider value={value}><div className={`min-h-screen app-surface ${theme === 'contrast' ? 'bg-white text-black font-extrabold' : 'bg-[#f8fbf9] text-tea-950'}`}>{children}</div></AppContext.Provider>;
 };

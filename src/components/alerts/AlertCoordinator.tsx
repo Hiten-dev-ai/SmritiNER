@@ -15,7 +15,6 @@ import { api } from '../../services/api';
 import { audioManager } from '../../services/audioManager';
 import { db } from '../../services/db';
 import { getLocalDateKey } from '../../services/localDate';
-import { voiceService } from '../../services/voiceService';
 import type { ReminderItem } from '../../types';
 
 interface AlertCoordinatorProps {
@@ -23,7 +22,7 @@ interface AlertCoordinatorProps {
 }
 
 export const AlertCoordinator: React.FC<AlertCoordinatorProps> = ({ onOpenRoutine }) => {
-  const { currentPatient, selectedLanguage, t } = useApp();
+  const { currentPatient, readAloud, t } = useApp();
   const [dueReminder, setDueReminder] = useState<ReminderItem | null>(null);
   const alertedOccurrencesRef = useRef<Set<string>>(new Set());
   const isCheckingRef = useRef<boolean>(false);
@@ -177,7 +176,7 @@ export const AlertCoordinator: React.FC<AlertCoordinatorProps> = ({ onOpenRoutin
     const text = `${t.reminderAlert}. ${dueReminder.title}. ${dueReminder.time}. ${
       dueReminder.dosage ? dueReminder.dosage + '.' : ''
     } ${dueReminder.notes || ''}`;
-    voiceService.speak(text, selectedLanguage);
+    readAloud(text);
   };
 
   return (

@@ -125,14 +125,28 @@ export interface TranslationDictionary {
   returnToMenu: string;
   basketReady: string;
 
-  // Multilingual Voice & Alert Extensions
   voiceAssist: string;
+  voiceCommands: string;
+  startListening: string;
   listening: string;
   speakNow: string;
+  liveTranscript: string;
   commandRecognized: string;
   confirmAction: string;
   confirm: string;
   cancel: string;
+  unsupportedBrowser: string;
+  permissionDenied: string;
+  noMicrophone: string;
+  noSpeechHeard: string;
+  recognitionNeedsNetwork: string;
+  commandNotRecognized: string;
+  assameseFallbackNotice: string;
+  confirmHydration: string;
+  confirmFamilyCall: string;
+  nothingScheduledToday: string;
+  allTasksCompleted: string;
+  readRoutine: string;
   alertsCenter: string;
   overdueMedicine: string;
   missedAppointment: string;
@@ -183,8 +197,20 @@ export const translations: Record<LanguageCode, TranslationDictionary> = {
     majuliInstruction: 'Match the pairs of familiar North Eastern symbols.', harvestInstruction: 'Tap fresh tea leaves and golden buds. Avoid twigs and caterpillars.', sequenceInstruction: 'Place the daily activities in the order they happen.', weaveInstruction: 'Choose the motif that completes the traditional pattern.', albumInstruction: 'Look at each familiar photo and choose the matching memory.',
     pairsCleared: 'pairs cleared', tapCard: 'Tap card', timelineOrder: 'Timeline order', tapCardsInOrder: 'Tap the cards below in order', availableCards: 'Available sequence cards', resetSequence: 'Reset sequence', step: 'Step', patternQuestion: 'Which motif correctly completes the weave?',
     memoryRecallQuestion: 'Memory question', hideClue: 'Hide family clue', listenFamilyClue: 'Listen to family clue', correct: 'Correct', tryAgain: 'Try again', nextMemory: 'Next cherished memory', completeSession: 'Complete session', noPhotos: 'No memory photos yet', noPhotosHelp: 'A caregiver can add family and regional photographs from the caregiver dashboard.', returnToMenu: 'Return to menu', basketReady: 'Basket ready',
-    voiceAssist: 'Voice Assist', listening: 'Listening...', speakNow: 'Speak a command (e.g. "Home", "Start game", "Mark done")',
-    commandRecognized: 'Command recognized', confirmAction: 'Confirm Action', confirm: 'Confirm', cancel: 'Cancel',
+    voiceAssist: 'Voice Commands', voiceCommands: 'Voice Commands', startListening: 'Start listening', listening: 'Listening...', speakNow: 'Speak a command (e.g. "Start memory game", "What do I do today", "Drink water")',
+    liveTranscript: 'Listening for your command…', commandRecognized: 'Command recognized', confirmAction: 'Confirm Action', confirm: 'Confirm', cancel: 'Cancel',
+    unsupportedBrowser: 'Voice input is not available on this browser. You can continue using the large buttons below.',
+    permissionDenied: 'Microphone access was denied. Please check your browser permissions or use the buttons below.',
+    noMicrophone: 'No microphone detected on this device. Please use the buttons below.',
+    noSpeechHeard: 'No speech was heard. Please tap Start listening and speak clearly.',
+    recognitionNeedsNetwork: 'Voice recognition may require an internet connection on some browsers.',
+    commandNotRecognized: 'I did not recognise that command. Try saying "Start memory game" or use the buttons below.',
+    assameseFallbackNotice: 'Assamese speech recognition is trying alternate language support.',
+    confirmHydration: 'Confirm adding one glass of water?',
+    confirmFamilyCall: 'Confirm calling your emergency contact / family?',
+    nothingScheduledToday: 'Nothing is scheduled for today.',
+    allTasksCompleted: 'All scheduled tasks and medicines are complete for today.',
+    readRoutine: 'Read routine',
     alertsCenter: 'Caregiver Alert Centre', overdueMedicine: 'Overdue Medicine', missedAppointment: 'Missed Appointment',
     prolongedInactivity: 'Prolonged Inactivity Check-in', sosAlertRaised: 'Emergency SOS Raised',
     acknowledge: 'Acknowledge', resolve: 'Resolve', savedOnDevice: 'Saved on this device',
@@ -228,8 +254,20 @@ export const translations: Record<LanguageCode, TranslationDictionary> = {
     majuliInstruction: 'उत्तर-पूर्व के परिचित चिन्हों के जोड़े मिलाएँ।', harvestInstruction: 'ताज़ी चाय की पत्तियाँ और सुनहरी कलियाँ चुनें। टहनियों और कीड़ों से बचें।', sequenceInstruction: 'दैनिक गतिविधियों को सही क्रम में रखें।', weaveInstruction: 'पारंपरिक पैटर्न पूरा करने वाला चिन्ह चुनें।', albumInstruction: 'परिचित फोटो देखें और उससे जुड़ी सही याद चुनें।',
     pairsCleared: 'जोड़े पूरे', tapCard: 'कार्ड दबाएँ', timelineOrder: 'दिनचर्या का क्रम', tapCardsInOrder: 'नीचे के कार्ड सही क्रम में दबाएँ', availableCards: 'उपलब्ध क्रम कार्ड', resetSequence: 'क्रम फिर शुरू करें', step: 'चरण', patternQuestion: 'कौन-सा चिन्ह बुनाई को सही पूरा करता है?',
     memoryRecallQuestion: 'याद का प्रश्न', hideClue: 'परिवार का संकेत छिपाएँ', listenFamilyClue: 'परिवार का संकेत सुनें', correct: 'सही', tryAgain: 'फिर प्रयास करें', nextMemory: 'अगली प्यारी याद', completeSession: 'सत्र पूरा करें', noPhotos: 'अभी कोई यादों की फोटो नहीं है', noPhotosHelp: 'देखभालकर्ता डैशबोर्ड से परिवार और क्षेत्र की फोटो जोड़ सकते हैं।', returnToMenu: 'सूची पर लौटें', basketReady: 'टोकरी तैयार',
-    voiceAssist: 'वॉइस सहायता', listening: 'सुन रहे हैं...', speakNow: 'आदेश बोलें (उदा. "घर", "खेल शुरू", "हो गया")',
-    commandRecognized: 'पहचाना गया आदेश', confirmAction: 'पुष्टि करें', confirm: 'स्वीकार', cancel: 'रद्द करें',
+    voiceAssist: 'आवाज़ आदेश', voiceCommands: 'आवाज़ आदेश', startListening: 'सुनना शुरू करें', listening: 'सुन रहे हैं...', speakNow: 'आदेश बोलें (उदा. "खेल शुरू करें", "आज क्या करना है", "पानी पिया")',
+    liveTranscript: 'आपके आदेश को सुन रहे हैं…', commandRecognized: 'पहचाना गया आदेश', confirmAction: 'पुष्टि करें', confirm: 'स्वीकार', cancel: 'रद्द करें',
+    unsupportedBrowser: 'इस ब्राउज़र पर आवाज़ इनपुट उपलब्ध नहीं है। आप नीचे दिए गए बड़े बटनों का उपयोग कर सकते हैं।',
+    permissionDenied: 'माइक्रोफ़ोन की अनुमति नहीं मिली। कृपया ब्राउज़र सेटिंग जांचें या नीचे दिए गए बटनों का उपयोग करें।',
+    noMicrophone: 'इस डिवाइस पर कोई माइक्रोफ़ोन नहीं मिला। कृपया नीचे दिए गए बटनों का उपयोग करें।',
+    noSpeechHeard: 'कोई आवाज़ सुनाई नहीं दी। कृपया सुनना शुरू करें दबाकर स्पष्ट बोलें।',
+    recognitionNeedsNetwork: 'कुछ ब्राउज़रों पर आवाज़ पहचान के लिए इंटरनेट कनेक्शन की आवश्यकता हो सकती है।',
+    commandNotRecognized: 'यह आदेश समझ में नहीं आया। "खेल शुरू करें" बोलकर देखें या नीचे दिए बटनों का उपयोग करें।',
+    assameseFallbackNotice: 'असमिया आवाज़ पहचान वैकल्पिक भाषा समर्थन का प्रयास कर रही है।',
+    confirmHydration: 'क्या आप एक गिलास पानी जोड़ना चाहते हैं?',
+    confirmFamilyCall: 'क्या आप परिवार / आपातकालीन संपर्क को फोन करना चाहते हैं?',
+    nothingScheduledToday: 'आज के लिए कुछ भी निर्धारित नहीं है।',
+    allTasksCompleted: 'आज के सभी निर्धारित कार्य और दवाइयाँ पूरी हो चुकी हैं।',
+    readRoutine: 'दिनचर्या सुनाओ',
     alertsCenter: 'अलर्ट केंद्र', overdueMedicine: 'दवाई का समय बीत गया', missedAppointment: 'छूटी हुई अपॉइंटमेंट',
     prolongedInactivity: 'लंबे समय से निष्क्रियता जाँच', sosAlertRaised: 'आपात सहायता सूचना',
     acknowledge: 'स्वीकार करें', resolve: 'समाधान करें', savedOnDevice: 'डिवाइस पर सुरक्षित',
@@ -273,11 +311,24 @@ export const translations: Record<LanguageCode, TranslationDictionary> = {
     majuliInstruction: 'উত্তৰ-পূবৰ চিনাকি চিহ্নৰ জোৰা মিলাওক।', harvestInstruction: 'কুমলীয়া চাহপাত আৰু সোণালী কুঁহিপাত টিপক। ডাল আৰু পোক এৰাই চলক।', sequenceInstruction: 'দৈনিক কামবোৰ হোৱা ক্ৰমত সজাওক।', weaveInstruction: 'পৰম্পৰাগত নক্সাটো সম্পূৰ্ণ কৰা চিহ্ন বাছক।', albumInstruction: 'চিনাকি ফটোখন চাওক আৰু মিল থকা স্মৃতি বাছক।',
     pairsCleared: 'জোৰা সম্পূৰ্ণ', tapCard: 'কাৰ্ড টিপক', timelineOrder: 'দিনটোৰ ক্ৰম', tapCardsInOrder: 'তলৰ কাৰ্ডবোৰ সঠিক ক্ৰমত টিপক', availableCards: 'উপলব্ধ ক্ৰমৰ কাৰ্ড', resetSequence: 'ক্ৰম আকৌ আৰম্ভ কৰক', step: 'খোজ', patternQuestion: 'কোনটো চিহ্নই বোৱনটো সঠিকভাৱে সম্পূৰ্ণ কৰে?',
     memoryRecallQuestion: 'স্মৃতিৰ প্ৰশ্ন', hideClue: 'পৰিয়ালৰ ইংগিত লুকুৱাওক', listenFamilyClue: 'পৰিয়ালৰ ইংগিত শুনক', correct: 'শুদ্ধ', tryAgain: 'আকৌ চেষ্টা কৰক', nextMemory: 'পৰৱৰ্তী মৰমৰ স্মৃতি', completeSession: 'অধিৱেশন সম্পূৰ্ণ কৰক', noPhotos: 'এতিয়াও স্মৃতিৰ ফটো নাই', noPhotosHelp: 'যত্ন লোৱা ব্যক্তিয়ে ডেশ্ববৰ্ডৰ পৰা পৰিয়াল আৰু অঞ্চলৰ ফটো যোগ কৰিব পাৰে।', returnToMenu: 'সূচীলৈ উভতি যাওক', basketReady: 'টুকুৰি সাজু',
-    voiceAssist: 'ভয়েচ সহায়', listening: 'শুনি থকা হৈছে...', speakNow: 'আদেশ কওক (যেনে "ঘৰ", "খেল আৰম্ভ", "হৈ গ\'ল")',
-    commandRecognized: 'চিনাক্ত হোৱা আদেশ', confirmAction: 'নিশ্চিত কৰক', confirm: 'নিশ্চিত', cancel: 'বাতিল',
+    voiceAssist: 'কণ্ঠ আদেশ', voiceCommands: 'কণ্ঠ আদেশ', startListening: 'শুনিবলৈ আৰম্ভ কৰক', listening: 'শুনি থকা হৈছে...', speakNow: 'আদেশ কওক (যেনে "খেল আৰম্ভ কৰক", "আজি কি কৰিব লাগে", "পানী খালো")',
+    liveTranscript: 'আপোনাৰ আদেশ শুনা হৈছে…', commandRecognized: 'চিনাক্ত হোৱা আদেশ', confirmAction: 'নিশ্চিত কৰক', confirm: 'নিশ্চিত', cancel: 'বাতিল',
+    unsupportedBrowser: 'এই ব্ৰাউজাৰত কণ্ঠ ইনপুট উপলব্ধ নহয়। আপুনি তলৰ ডাঙৰ বুটামবোৰ ব্যৱহাৰ কৰিব পাৰে।',
+    permissionDenied: 'মাইক্ৰ\'ফ\'নৰ অনুমতি দিয়া নহ\'ল। অনুগ্ৰহ কৰি ব্ৰাউজাৰ ছেটিং পৰীক্ষা কৰক বা তলৰ বুটামবোৰ ব্যৱহাৰ কৰক।',
+    noMicrophone: 'এই ডিভাইচত কোনো মাইক্ৰ\'ফ\'ন পোৱা নগ\'ল। অনুগ্ৰহ কৰি তলৰ বুটামবোৰ ব্যৱহাৰ কৰক।',
+    noSpeechHeard: 'কোনো কথা শুনা নগ\'ল। অনুগ্ৰহ কৰি শুনা আৰম্ভ কৰক টিপি স্পষ্টকৈ কওক।',
+    recognitionNeedsNetwork: 'কিছুমান ব্ৰাউজাৰত কণ্ঠ চিনাক্তকৰণৰ বাবে ইণ্টাৰনেট সংযোগৰ প্ৰয়োজন হ\'ব পাৰে।',
+    commandNotRecognized: 'এই আদেশটো বুজি পোৱা নগ\'ল। "খেল আৰম্ভ কৰক" বুলি কওক বা তলৰ বুটামবোৰ ব্যৱহাৰ কৰক।',
+    assameseFallbackNotice: 'অসমীয়া কণ্ঠ চিনাক্তকৰণে বিকল্প ভাষা সমৰ্থন চেষ্টা কৰি আছে।',
+    confirmHydration: 'এগিলাচ পানী যোগ কৰিব নেকি?',
+    confirmFamilyCall: 'পৰিয়াল বা জৰুৰী যোগাযোগক ফোন কৰিব নেকি?',
+    nothingScheduledToday: 'আজিৰ বাবে একো তালিকাভুক্ত নাই।',
+    allTasksCompleted: 'আজিৰ সকলো কাম আৰু ঔষধ সম্পূৰ্ণ হৈছে।',
+    readRoutine: 'ৰুটিন শুনক',
     alertsCenter: 'জাননী কেন্দ্ৰ', overdueMedicine: 'ঔষধৰ সময় উকলি গ\'ল', missedAppointment: 'ছুটি হোৱা এপইণ্টমেণ্ট',
     prolongedInactivity: 'দীৰ্ঘ সময়ৰ নিষ্ক্ৰিয়তা পৰীক্ষা', sosAlertRaised: 'জৰুৰী সহায়ৰ জাননী',
     acknowledge: 'গ্ৰহণ কৰক', resolve: 'সমাধান কৰক', savedOnDevice: 'এই ডিভাইচত সংৰক্ষিত',
     mahjongBlockedHelp: 'এই টাইলটোৰ এটা কাষ খোলা থাকিব লাগিব আৰু ওপৰত আন কোনো টাইল থাকিব নালাগিব।',
   },
 };
+

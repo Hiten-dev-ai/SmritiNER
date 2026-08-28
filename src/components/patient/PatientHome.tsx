@@ -20,7 +20,6 @@ import {
   type JourneyGameType,
 } from '../../services/journeyEngine';
 import { getLayoutForStage, type MahjongSavedGame } from '../../services/mahjongEngine';
-import { voiceService } from '../../services/voiceService';
 import type { JourneyGameSession, ReminiscencePhoto, ReminderItem, VoiceActionId } from '../../types';
 import { AlertCoordinator } from '../alerts/AlertCoordinator';
 import { GameSelection } from '../games/GameSelection';
@@ -98,6 +97,7 @@ export const PatientHome: React.FC = () => {
     gameProgress,
     refreshGameProgress,
     setLocalGameProgress,
+    readAloud,
     t,
   } = useApp();
 
@@ -110,6 +110,7 @@ export const PatientHome: React.FC = () => {
   const [gardenFlowers, setGardenFlowers] = useState<number>(0);
   const [mahjongSave, setMahjongSave] = useState<MahjongSavedGame | null>(null);
   const [showVoiceModal, setShowVoiceModal] = useState<boolean>(false);
+  const [voiceContext, setVoiceContext] = useState<'patient-home' | 'routine'>('patient-home');
 
   const today = getLocalDateKey();
   const copy = patientCopy[selectedLanguage] || patientCopy.English;
@@ -178,6 +179,22 @@ export const PatientHome: React.FC = () => {
     setView('game');
   };
 
+  const readRoutineAloud = () => {
+    if (reminders.length === 0) {
+      readAloud(t.nothingScheduledToday);
+      return;
+    }
+
+    const pending = reminders.filter((item) => !item.completedDates?.includes(today));
+    if (pending.length === 0) {
+      readAloud(t.allTasksCompleted);
+      return;
+    }
+
+    const spokenList = pending.map((r) => `${r.title} at ${r.time}`).join('. ');
+    readAloud(`${t.todaysRoutine}. ${spokenList}`);
+  };
+
   const handleVoiceCommand = (actionId: VoiceActionId) => {
     switch (actionId) {
       case 'home':
@@ -185,6 +202,9 @@ export const PatientHome: React.FC = () => {
         break;
       case 'start_game':
         launch(recommended.id as JourneyGameType);
+        break;
+      case 'read_routine':
+        readRoutineAloud();
         break;
       case 'open_routine':
         setView('routine');
@@ -196,10 +216,13 @@ export const PatientHome: React.FC = () => {
         void handleCallFamily();
         break;
       case 'repeat':
-        voiceService.speak(`${copy.journey}. ${recommendedText.title}. ${copy.fresh}`, selectedLanguage);
+        readAloud(`${copy.journey}. ${recommendedText.title}. ${copy.fresh}`);
         break;
       case 'back':
         setView('home');
+        break;
+      case 'stop_listening':
+        setShowVoiceModal(false);
         break;
     }
   };
@@ -242,12 +265,13 @@ export const PatientHome: React.FC = () => {
       <AlertCoordinator onOpenRoutine={() => setView('routine')} />
 
       {/* ------------------------------------------------------------- */}
-      {/* 2. PUSH-TO-TALK VOICE ASSIST MODAL                            */}
+      {/* 2. PUSH-TO-TALK VOICE COMMANDS MODAL                          */}
       {/* ------------------------------------------------------------- */}
       <VoiceAssistModal
         isOpen={showVoiceModal}
         onClose={() => setShowVoiceModal(false)}
         onExecuteCommand={handleVoiceCommand}
+        context={voiceContext}
       />
 
       {/* Offline Banner */}
@@ -302,9 +326,8 @@ export const PatientHome: React.FC = () => {
               </p>
               <button
                 onClick={() =>
-                  voiceService.speak(
-                    `${t.welcome} ${currentPatient.name}. ${copy.journey}. ${recommendedText.title}. ${copy.fresh}`,
-                    selectedLanguage
+                  readAloud(
+                    `${t.welcome} ${currentPatient.name}. ${copy.journey}. ${recommendedText.title}. ${copy.fresh}`
                   )
                 }
                 className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 text-assamGold-300 transition"
@@ -316,14 +339,30 @@ export const PatientHome: React.FC = () => {
 
             <h1 className="mt-2 text-3xl font-black leading-tight sm:text-5xl">{copy.journey}</h1>
             <p className="mt-3 text-lg font-semibold text-emerald-50">{copy.fresh}</p>
-            <button
-              onClick={() => launch(recommended.id as JourneyGameType)}
-              className="mt-6 flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl bg-assamGold-300 px-6 text-xl font-black text-tea-950 shadow-lg hover:bg-amber-400 transition sm:w-auto"
-            >
-              <Sparkles className="h-7 w-7" />
-              {copy.play} {recommendedText.title}
-              <ChevronRight />
-            </button>
+            
+            <div className="mt-6 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <button
+                onClick={() => launch(recommended.id as JourneyGameType)}
+                className="flex min-h-16 flex-1 items-center justify-center gap-3 rounded-2xl bg-assamGold-300 px-6 text-xl font-black text-tea-950 shadow-lg hover:bg-amber-400 transition"
+              >
+                <Sparkles className="h-7 w-7" />
+                {copy.play} {recommendedText.title}
+                <ChevronRight />
+              </button>
+
+              {/* Prominent Voice Commands Button */}
+              <button
+                onClick={() => {
+                  setVoiceContext('patient-home');
+                  setShowVoiceModal(true);
+                }}
+                className="flex min-h-16 items-center justify-center gap-3 rounded-2xl border-2 border-white/30 bg-white/15 px-6 text-lg font-black text-white shadow-md hover:bg-white/25 transition"
+                aria-label={t.voiceCommands}
+              >
+                <Mic className="h-6 w-6 text-assamGold-300" />
+                <span>{t.voiceCommands}</span>
+              </button>
+            </div>
           </div>
 
           <div className="relative grid min-w-64 grid-cols-2 gap-3">
@@ -412,11 +451,10 @@ export const PatientHome: React.FC = () => {
             </button>
             <button
               onClick={() =>
-                voiceService.speak(
+                readAloud(
                   `${copy.routine}. ${
                     reminders.filter((item) => item.completedDates?.includes(today)).length
-                  } of ${reminders.length} items completed today.`,
-                  selectedLanguage
+                  } of ${reminders.length} items completed today.`
                 )
               }
               className="flex h-10 w-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100"
@@ -443,10 +481,7 @@ export const PatientHome: React.FC = () => {
             </div>
             <button
               onClick={() =>
-                voiceService.speak(
-                  `${copy.hydration}. ${hydration} of 6 glasses logged today.`,
-                  selectedLanguage
-                )
+                readAloud(`${copy.hydration}. ${hydration} of 6 glasses logged today.`)
               }
               className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100"
               aria-label={t.listen}
@@ -491,22 +526,30 @@ export const PatientHome: React.FC = () => {
       {view === 'routine' && (
         <section className="fixed inset-0 z-50 overflow-y-auto bg-[#f8fbf9] p-4">
           <div className="mx-auto max-w-2xl">
-            <button
-              onClick={() => setView('home')}
-              className="mb-4 min-h-12 rounded-xl border bg-white px-4 font-black"
-            >
-              ← {copy.home}
-            </button>
+            <div className="flex items-center justify-between mb-4">
+              <button
+                onClick={() => setView('home')}
+                className="min-h-12 rounded-xl border bg-white px-4 font-black"
+              >
+                ← {copy.home}
+              </button>
+              <button
+                onClick={() => {
+                  setVoiceContext('routine');
+                  setShowVoiceModal(true);
+                }}
+                className="flex min-h-12 items-center gap-2 rounded-xl bg-teal-800 px-4 font-black text-white hover:bg-teal-900"
+              >
+                <Mic className="h-5 w-5" />
+                <span>{t.voiceCommands}</span>
+              </button>
+            </div>
+
             <div className="flex items-center justify-between mb-4">
               <h1 className="text-3xl font-black">{t.todaysRoutine}</h1>
               <button
-                onClick={() =>
-                  voiceService.speak(
-                    `${t.todaysRoutine}. ${reminders.map((r) => `${r.title} at ${r.time}`).join('. ')}`,
-                    selectedLanguage
-                  )
-                }
-                className="flex h-11 w-11 items-center justify-center rounded-xl border bg-white text-stone-700"
+                onClick={readRoutineAloud}
+                className="flex h-11 w-11 items-center justify-center rounded-xl border bg-white text-stone-700 hover:bg-stone-100"
                 aria-label={t.listen}
               >
                 <Volume2 className="h-5 w-5" />
@@ -555,13 +598,16 @@ export const PatientHome: React.FC = () => {
         </section>
       )}
 
-      {/* Floating Voice Assist Button */}
+      {/* Floating Voice Commands Button (Compact, visible only on small screens) */}
       <button
-        onClick={() => setShowVoiceModal(true)}
-        className="fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-full bg-teal-800 text-white shadow-2xl hover:bg-teal-900 transition hover:scale-105 border-2 border-white animate-bounce"
-        aria-label={t.voiceAssist}
+        onClick={() => {
+          setVoiceContext('patient-home');
+          setShowVoiceModal(true);
+        }}
+        className="sm:hidden fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-teal-800 text-white shadow-xl hover:bg-teal-900 transition border-2 border-white"
+        aria-label={t.voiceCommands}
       >
-        <Mic className="h-8 w-8" />
+        <Mic className="h-7 w-7" />
       </button>
 
       {/* Render Games Subviews */}

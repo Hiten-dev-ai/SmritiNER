@@ -35,10 +35,10 @@ export const Navbar: React.FC = () => {
               <button
                 onClick={() => setVoiceOpen(true)}
                 className="tactile-btn flex h-12 min-w-12 items-center justify-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-bold text-teal-900 shadow-sm"
-                aria-label={t.voiceAssist}
+                aria-label={t.voiceCommands}
               >
                 <Mic className="h-5 w-5 text-teal-700" />
-                <span className="hidden md:inline">{t.voiceAssist}</span>
+                <span className="hidden md:inline">{t.voiceCommands}</span>
               </button>
             )}
             <button

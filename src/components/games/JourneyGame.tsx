@@ -152,16 +152,6 @@ export const JourneyGame: React.FC<JourneyGameProps> = ({
   const unlockedStage = currentProgress?.unlockedStage || 1;
   const recommendedStage = currentProgress?.recommendedStage || 1;
 
-  if (gameType === 'mahjong_memory') {
-    return (
-      <MahjongSolitaireGame
-        initialStage={activeStage}
-        onBack={onBack}
-        onComplete={onComplete}
-      />
-    );
-  }
-
   const profile = profileForStage(gameType, activeStage);
   const [phase, setPhase] = useState<Phase>('ready');
   const [roundIndex, setRoundIndex] = useState(0);
@@ -207,6 +197,16 @@ export const JourneyGame: React.FC<JourneyGameProps> = ({
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [phase, profile.previewDurationMs]);
+
+  if (gameType === 'mahjong_memory') {
+    return (
+      <MahjongSolitaireGame
+        initialStage={activeStage}
+        onBack={onBack}
+        onComplete={onComplete}
+      />
+    );
+  }
 
   const makeRound = (index: number): RoundData => {
     const variantBase = `${gameType}:${activeStage}:${index}`;

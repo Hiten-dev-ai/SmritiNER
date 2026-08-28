@@ -341,6 +341,7 @@ export type VoiceActionId =
   | 'back'
   | 'repeat'
   | 'start_game'
+  | 'read_routine'
   | 'pause'
   | 'continue'
   | 'hint'
@@ -351,6 +352,14 @@ export type VoiceActionId =
   | 'call_family'
   | 'stop_listening';
 
+export type VoiceInputError =
+  | 'unsupported'
+  | 'permission-denied'
+  | 'no-microphone'
+  | 'no-speech'
+  | 'network'
+  | 'language-unavailable';
+
 export interface DetectedVoiceCommand {
   actionId: VoiceActionId;
   label: string;
@@ -358,4 +367,5 @@ export interface DetectedVoiceCommand {
   requiresConfirmation: boolean;
   transcript: string;
 }
+
 

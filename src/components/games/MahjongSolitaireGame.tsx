@@ -1,22 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
   Check,
   ChevronRight,
-  Compass,
   CornerUpLeft,
   Flower2,
   HelpCircle,
-  Maximize2,
-  Minimize2,
   MoreHorizontal,
   Pause,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   Sparkles,
   Volume2,
   X,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { audioManager } from '../../services/audioManager';
@@ -55,8 +52,6 @@ interface MahjongSolitaireGameProps {
   onSaveGame?: (save: MahjongSavedGame) => Promise<void>;
   onClearSave?: () => Promise<void>;
 }
-
-type MenuKey = 'game' | 'move' | 'view' | 'theme' | 'help' | null;
 
 const TEST_MODE_SESSION_KEY = 'smriti_mahjong_test_mode';
 const TEST_SAVE_SESSION_KEY = 'smriti_mahjong_test_save';
@@ -100,17 +95,17 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     try {
       sessionStorage.setItem(TEST_MODE_SESSION_KEY, enable ? 'true' : 'false');
     } catch {
-      // session storage quota fallback
+      // storage fallback
     }
     setTestingState({
       enabled: enable,
       effectiveUnlockedStage: enable ? 12 : realUnlockedStage,
     });
     if (enable) {
-      setViewPrefs((prev) => ({ ...prev, showLayerNumbers: true }));
-      setToastMessage('Testing Mode active: all 12 stages unlocked for this session.');
+      setViewPrefs((prev) => ({ ...prev, showLayerLabels: true }));
+      setToastMessage('Testing Mode: All 12 layouts unlocked for this session.');
     } else {
-      setToastMessage('Testing Mode disabled: standard patient progression restored.');
+      setToastMessage('Testing Mode disabled: Standard progression restored.');
     }
   };
 
@@ -125,11 +120,10 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
   );
 
   const [viewPrefs, setViewPrefs] = useState<MahjongViewPreferences>({
-    viewMode: 'fit',
-    depthBoost: true,
+    viewMode: stage >= 7 ? 'comfort' : 'fit',
     showFreeHighlights: true,
-    showLayerNumbers: testingState.enabled,
-    explainBlockedTiles: true,
+    showLayerLabels: testingState.enabled,
+    showBoardMap: false,
     largePrint: false,
   });
 
@@ -154,27 +148,17 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
   const [shuffleCount, setShuffleCount] = useState<number>(savedGame?.shuffleCount || 0);
   const [startedAt] = useState<string>(savedGame?.startedAt || new Date().toISOString());
 
-  // UI state
-  const [activeMenu, setActiveMenu] = useState<MenuKey>(null);
+  // Dialogs & Sheets
   const [isPaused, setIsPaused] = useState<boolean>(false);
-  const [showTutorial, setShowTutorial] = useState<boolean>(false);
+  const [showMoreSheet, setShowMoreSheet] = useState<boolean>(false);
   const [showStageModal, setShowStageModal] = useState<boolean>(false);
+  const [showTutorial, setShowTutorial] = useState<boolean>(false);
   const [showNoMovesModal, setShowNoMovesModal] = useState<boolean>(false);
   const [showShuffleConfirmModal, setShowShuffleConfirmModal] = useState<boolean>(false);
-  const [showMobileMoreSheet, setShowMobileMoreSheet] = useState<boolean>(false);
-  const [showMiniMap, setShowMiniMap] = useState<boolean>(true);
-  const [showLegend, setShowLegend] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('smriti_mahjong_legend_seen') !== 'true';
-    } catch {
-      return true;
-    }
-  });
-
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Blocked tile diagnostics
+  // Interaction Feedback
   const [blockedHighlights, setBlockedHighlights] = useState<{
     targetId: string;
     covererIds: string[];
@@ -185,28 +169,27 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
   const [matchingAnimation, setMatchingAnimation] = useState<[string, string] | null>(null);
 
   // -----------------------------------------------------------------
-  // 3. REAL VIEWPORT CAMERA & FIT ENGINE
+  // 3. DOMINANT VIEWPORT CAMERA & DYNAMIC FIT ENGINE
   // -----------------------------------------------------------------
-  // Dimensional base sizes
   const tileFaceWidth = 62;
   const tileFaceHeight = 80;
   const halfX = tileFaceWidth / 2; // 31px
   const halfY = tileFaceHeight / 2; // 40px
-  const layerShift = viewPrefs.depthBoost ? 10 : 8; // 8px (or 10px with depth boost)
+  const layerShift = 8; // 8px right, 8px up
   const depthRight = 7;
   const depthBottom = 8;
 
   // Complete board physical bounds
   const boardTotalWidth =
-    (layout.cameraBounds.maxX + 1) * halfX + layout.maxLayers * layerShift + depthRight + 48;
+    (layout.cameraBounds.maxX + 1) * halfX + layout.maxLayers * layerShift + depthRight + 40;
   const boardTotalHeight =
-    (layout.cameraBounds.maxY + 1) * halfY + layout.maxLayers * layerShift + depthBottom + 48;
+    (layout.cameraBounds.maxY + 1) * halfY + layout.maxLayers * layerShift + depthBottom + 40;
 
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
-    width: 800,
-    height: 600,
+    width: 900,
+    height: 650,
   });
 
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -219,27 +202,37 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     moved: false,
   });
 
-  // Calculate real fitScale
+  // Calculate dynamic fit scale so small layouts expand to occupy 70–80% of playable canvas
   const fitScale = useMemo(() => {
     const availW = Math.max(300, viewportSize.width - 32);
-    const availH = Math.max(300, viewportSize.height - 32);
-    return Math.min(1.4, Math.max(0.35, Math.min(availW / boardTotalWidth, availH / boardTotalHeight)));
-  }, [viewportSize, boardTotalWidth, boardTotalHeight]);
+    const availH = Math.max(300, viewportSize.height - (64 + 76));
+    const rawScale = Math.min(availW / boardTotalWidth, availH / boardTotalHeight);
 
-  // Recalculate camera on viewport changes or viewMode switch
+    // If small layout (e.g. 24–48 tiles), scale up so it occupies 70–80% of canvas
+    if (layout.tileCount <= 48) {
+      return Math.min(1.4, Math.max(0.9, rawScale * 1.25));
+    }
+    // Moderate layouts (60–96 tiles)
+    if (layout.tileCount <= 96) {
+      return Math.min(1.2, Math.max(0.65, rawScale * 1.1));
+    }
+    // Dense layouts (108–144 tiles)
+    return Math.min(1.1, Math.max(0.45, rawScale));
+  }, [viewportSize, boardTotalWidth, boardTotalHeight, layout.tileCount]);
+
   const fitBoardToView = (mode: 'fit' | 'comfort' = viewPrefs.viewMode) => {
     if (mode === 'fit') {
       setZoom(fitScale);
       setPan({ x: 0, y: 0 });
     } else {
-      // Comfort view: maintain tiles at easily readable & tappable size (zoom >= 1.0)
+      // Comfort zoom keeps tiles >= 56px wide
       const comfortTarget = Math.max(1.0, fitScale * 1.35);
       setZoom(comfortTarget);
       setPan({ x: 0, y: 0 });
     }
   };
 
-  // ResizeObserver on table viewport
+  // ResizeObserver on table container
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
@@ -268,7 +261,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
   // Toast timer
   useEffect(() => {
     if (!toastMessage) return;
-    const t = setTimeout(() => setToastMessage(null), 3200);
+    const t = setTimeout(() => setToastMessage(null), 3000);
     return () => clearTimeout(t);
   }, [toastMessage]);
 
@@ -282,7 +275,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
   // Hint clear timer
   useEffect(() => {
     if (!hintedPair) return;
-    const t = setTimeout(() => setHintedPair(null), 4000);
+    const t = setTimeout(() => setHintedPair(null), 3500);
     return () => clearTimeout(t);
   }, [hintedPair]);
 
@@ -296,7 +289,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
       const timer = setTimeout(() => {
         setShowNoMovesModal(true);
         audioManager.play('gentle-nudge');
-      }, 500);
+      }, 400);
       return () => clearTimeout(timer);
     }
   }, [activeTiles.length, availableMatches.length, matchingAnimation]);
@@ -326,7 +319,6 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     };
 
     if (testingState.enabled) {
-      // In test mode: Save only to session storage test key
       try {
         sessionStorage.setItem(TEST_SAVE_SESSION_KEY, JSON.stringify(saveState));
       } catch {
@@ -335,7 +327,6 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
       return;
     }
 
-    // Normal patient session auto-save
     try {
       localStorage.setItem(`smriti-mahjong-save-${currentPatient.id}`, JSON.stringify(saveState));
     } catch {
@@ -395,43 +386,38 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
         rightIds: rightBlockers,
       });
 
-      if (viewPrefs.explainBlockedTiles) {
-        let msg = '';
-        if (covered && (leftB || rightB)) {
-          msg = 'Clear the top tile and open one side.';
-        } else if (covered) {
-          msg = 'This tile has another tile above it.';
-        } else {
-          msg = 'Free the left or right side first.';
-        }
-        setToastMessage(msg);
-        if (speechSupported) {
-          readAloud(msg);
-        }
+      let msg = '';
+      if (covered && (leftB || rightB)) {
+        msg = 'Clear the top tile and open one side.';
+      } else if (covered) {
+        msg = 'This tile has another tile above it.';
+      } else {
+        msg = 'Open the left or right side first.';
+      }
+      setToastMessage(msg);
+      if (speechSupported) {
+        readAloud(msg);
       }
       return;
     }
 
-    // Play tile pick click (richer pitch for upper layer tiles)
+    // Play tile pick click (richer pitch for upper layers)
     if (tile.z > 1) {
       audioManager.play('tap');
     } else {
       audioManager.play('tile-pick');
     }
 
-    // If no tile currently selected
     if (!selectedTileId) {
       setSelectedTileId(tile.instanceId);
       return;
     }
 
-    // If clicking same tile, unselect
     if (selectedTileId === tile.instanceId) {
       setSelectedTileId(undefined);
       return;
     }
 
-    // Second tile selected - check match
     const firstTile = tiles.find((t) => t.instanceId === selectedTileId);
     if (!firstTile) {
       setSelectedTileId(tile.instanceId);
@@ -463,7 +449,6 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
         setSelectedTileId(undefined);
         setMatchingAnimation(null);
 
-        // Check board completion
         const remaining = nextTiles.filter((t) => t.active);
         if (remaining.length === 0) {
           handleBoardComplete(nextTiles);
@@ -484,7 +469,6 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     audioManager.play('journey-complete');
 
     if (testingState.enabled) {
-      // In Testing Mode: Never alter real patient progress, DB, or rewards
       try {
         sessionStorage.removeItem(TEST_SAVE_SESSION_KEY);
       } catch {
@@ -564,7 +548,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     setShowNoMovesModal(false);
   };
 
-  // Hint with camera auto-frame
+  // Hint with camera centering
   const handleHint = () => {
     if (!availableMatches.length) {
       setToastMessage('No free matches available right now. Tap Shuffle to rearrange.');
@@ -578,7 +562,6 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     const id1 = getIdentity(match[0].identityId);
     setToastMessage(`Hint: Match available: ${id1.nerName[selectedLanguage] || id1.nerName.English}`);
 
-    // If tiles are outside comfortable viewport, frame them smoothly
     if (viewPrefs.viewMode === 'comfort') {
       const midX = ((match[0].x + match[1].x) / 2) * halfX;
       const midY = ((match[0].y + match[1].y) / 2) * halfY;
@@ -588,7 +571,6 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     }
   };
 
-  // Shuffle handler (checks if matches still exist to prompt confirmation)
   const triggerShuffle = () => {
     setShuffleCount((prev) => prev + 1);
     audioManager.play('tap');
@@ -616,7 +598,6 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     }
   };
 
-  // Restart deal
   const handleRestartDeal = () => {
     setTiles(generateSolvableDeal(layout, dealSeed));
     setSelectedTileId(undefined);
@@ -625,10 +606,10 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     setShowNoMovesModal(false);
     setShowShuffleConfirmModal(false);
     setIsPaused(false);
+    setShowMoreSheet(false);
     audioManager.play('tap');
   };
 
-  // New Deal
   const handleNewDeal = (newStage: number = stage) => {
     const newSeed = `${Date.now()}`;
     const newLayout = getLayoutForStage(newStage);
@@ -645,18 +626,10 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     setShowNoMovesModal(false);
     setShowShuffleConfirmModal(false);
     setShowStageModal(false);
+    setShowMoreSheet(false);
     setIsPaused(false);
     setIsCompleted(false);
     audioManager.play('tap');
-  };
-
-  const dismissLegend = () => {
-    setShowLegend(false);
-    try {
-      localStorage.setItem('smriti_mahjong_legend_seen', 'true');
-    } catch {
-      // storage fallback
-    }
   };
 
   // -----------------------------------------------------------------
@@ -672,7 +645,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
       : 'bg-[#cfb99b] text-stone-950';
 
   // -----------------------------------------------------------------
-  // 6. POINTER PANNING & DRAGGING
+  // 6. POINTER DRAGGING & PANNING
   // -----------------------------------------------------------------
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('.mahjong-tile-btn')) return;
@@ -694,7 +667,6 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
       dragStartRef.current.moved = true;
     }
 
-    // Clamp pan bounds so the board cannot be lost outside the viewport
     const maxPanX = boardTotalWidth * zoom * 0.8;
     const maxPanY = boardTotalHeight * zoom * 0.8;
     const nextX = Math.max(-maxPanX, Math.min(maxPanX, dragStartRef.current.panX + dx));
@@ -709,7 +681,6 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
 
   const onDoubleClick = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.mahjong-tile-btn')) return;
-    // Double click recenters
     setPan({ x: 0, y: 0 });
   };
 
@@ -722,18 +693,24 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
       onDoubleClick={onDoubleClick}
     >
       {/* ------------------------------------------------------------- */}
-      {/* 1. VISIBLE HEADER BAR (56px)                                  */}
+      {/* 1. SINGLE CLEAN 64PX HEADER                                   */}
       {/* ------------------------------------------------------------- */}
-      <header className="shrink-0 flex h-14 items-center justify-between border-b border-black/20 bg-gradient-to-b from-[#1b4332]/95 to-[#0e2a1e]/95 px-3 text-white shadow-md backdrop-blur-md z-40">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-2xl shadow-sm text-emerald-950 font-black shrink-0">
-            🀄
-          </span>
-          <div className="min-w-0 flex items-center gap-1.5 sm:gap-2">
+      <header className="shrink-0 flex h-16 items-center justify-between border-b border-black/20 bg-gradient-to-b from-[#1b4332]/95 to-[#0e2a1e]/95 px-3 sm:px-5 text-white shadow-md backdrop-blur-md z-40">
+        {/* Left: Back & Layout Title */}
+        <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
+          <button
+            onClick={onBack}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 transition"
+            aria-label="Back to Menu"
+          >
+            <ArrowLeft className="h-5 w-5 text-white" />
+          </button>
+
+          <div className="min-w-0 flex items-center gap-2">
             <span className="text-base sm:text-lg font-black tracking-tight truncate">
               Smriti Mahjong
             </span>
-            <span className="text-emerald-300 font-bold">·</span>
+            <span className="text-emerald-300 font-bold hidden xs:inline">·</span>
             <button
               onClick={() => setShowStageModal(true)}
               className="text-xs sm:text-sm font-bold text-amber-200 hover:text-amber-100 truncate hover:underline flex items-center gap-1"
@@ -745,20 +722,31 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
             </button>
           </div>
 
-          {/* Testing Mode Active Badge */}
           {testingState.enabled && (
-            <span className="ml-1.5 hidden sm:inline-flex items-center gap-1 rounded-full bg-amber-400 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-amber-950 shadow-sm animate-pulse">
+            <span className="hidden lg:inline-flex items-center gap-1 rounded-full bg-amber-400 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-amber-950 shadow-sm animate-pulse">
               <Sparkles className="h-3 w-3" /> TEST · ALL STAGES
             </span>
           )}
         </div>
 
+        {/* Center: Desktop Inline Status */}
+        <div className="hidden md:flex items-center gap-3 px-4 py-1.5 rounded-full border border-white/15 bg-black/25 text-xs font-black tracking-wide text-emerald-100 shadow-inner">
+          <span>{activeTiles.length} tiles</span>
+          <span className="text-emerald-400">·</span>
+          <span className={availableMatches.length > 0 ? 'text-amber-300' : 'text-rose-300'}>
+            {availableMatches.length} pair{availableMatches.length !== 1 ? 's' : ''} available
+          </span>
+          <span className="text-emerald-400">·</span>
+          <span>{pairsCleared} cleared</span>
+        </div>
+
+        {/* Right Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {speechSupported && (
             <button
               onClick={() =>
                 readAloud(
-                  `Mahjong Solitaire, Stage ${stage}, ${layout.name.English}. ${activeTiles.length} tiles left, ${availableMatches.length} matches available.`
+                  `Mahjong Solitaire, Stage ${stage}, ${layout.name.English}. ${activeTiles.length} tiles left, ${availableMatches.length} pairs available.`
                 )
               }
               className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 transition"
@@ -770,400 +758,33 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
 
           <button
             onClick={() => setIsPaused(true)}
-            className="flex min-h-11 items-center justify-center gap-1.5 px-3.5 rounded-xl border border-white/20 bg-white/10 text-xs sm:text-sm font-bold hover:bg-white/20 transition"
+            className="flex min-h-11 items-center justify-center gap-1.5 px-3 rounded-xl border border-white/20 bg-white/10 text-xs sm:text-sm font-bold hover:bg-white/20 transition"
           >
             <Pause className="h-4 w-4" />
             <span className="hidden sm:inline">Pause</span>
           </button>
 
           <button
-            onClick={onBack}
-            className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-white/10 hover:bg-rose-900/80 transition"
-            aria-label="Exit Game"
+            onClick={() => setShowMoreSheet(true)}
+            className="flex min-h-11 items-center justify-center gap-1.5 px-3 rounded-xl border border-white/20 bg-white/10 text-xs sm:text-sm font-bold hover:bg-white/20 transition"
+            aria-label="More Settings"
           >
-            <X className="h-5 w-5 text-white" />
+            <SlidersHorizontal className="h-4 w-4 text-amber-200" />
+            <span className="hidden sm:inline">More</span>
           </button>
         </div>
       </header>
 
       {/* ------------------------------------------------------------- */}
-      {/* 2. DESKTOP TEXT MENU BAR (48px)                               */}
-      {/* ------------------------------------------------------------- */}
-      <nav className="shrink-0 hidden md:flex h-12 items-center gap-1 border-b border-black/10 bg-white/95 px-4 text-sm font-black text-stone-800 shadow-sm relative z-30">
-        {/* Game Menu */}
-        <div className="relative">
-          <button
-            onClick={() => setActiveMenu(activeMenu === 'game' ? null : 'game')}
-            className={`px-3.5 py-2 rounded-lg hover:bg-stone-200 transition ${
-              activeMenu === 'game' ? 'bg-stone-200' : ''
-            }`}
-          >
-            Game
-          </button>
-          {activeMenu === 'game' && (
-            <div className="absolute left-0 top-full mt-1.5 w-60 rounded-2xl border border-stone-300 bg-white p-2 shadow-2xl text-sm font-bold text-stone-900 z-50">
-              <button
-                onClick={() => {
-                  handleNewDeal();
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100"
-              >
-                New Deal
-              </button>
-              <button
-                onClick={() => {
-                  handleRestartDeal();
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100"
-              >
-                Restart This Deal
-              </button>
-              <button
-                onClick={() => {
-                  setShowStageModal(true);
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Choose Stage (1–12)</span>
-                <ChevronRight className="h-4 w-4 text-stone-400" />
-              </button>
-              <hr className="my-1.5 border-stone-200" />
-              <button
-                onClick={() => {
-                  setActiveMenu(null);
-                  onBack();
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl text-rose-700 hover:bg-rose-50"
-              >
-                Save & Exit
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Move Menu */}
-        <div className="relative">
-          <button
-            onClick={() => setActiveMenu(activeMenu === 'move' ? null : 'move')}
-            className={`px-3.5 py-2 rounded-lg hover:bg-stone-200 transition ${
-              activeMenu === 'move' ? 'bg-stone-200' : ''
-            }`}
-          >
-            Move
-          </button>
-          {activeMenu === 'move' && (
-            <div className="absolute left-0 top-full mt-1.5 w-60 rounded-2xl border border-stone-300 bg-white p-2 shadow-2xl text-sm font-bold text-stone-900 z-50">
-              <button
-                disabled={!moveHistory.length}
-                onClick={() => {
-                  handleUndo();
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 disabled:opacity-40"
-              >
-                Undo Move
-              </button>
-              <button
-                onClick={() => {
-                  handleHint();
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100"
-              >
-                Hint
-              </button>
-              <button
-                onClick={() => {
-                  handleShuffleRequest();
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100"
-              >
-                Shuffle Remaining Tiles
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* View Menu */}
-        <div className="relative">
-          <button
-            onClick={() => setActiveMenu(activeMenu === 'view' ? null : 'view')}
-            className={`px-3.5 py-2 rounded-lg hover:bg-stone-200 transition ${
-              activeMenu === 'view' ? 'bg-stone-200' : ''
-            }`}
-          >
-            View
-          </button>
-          {activeMenu === 'view' && (
-            <div className="absolute left-0 top-full mt-1.5 w-72 rounded-2xl border border-stone-300 bg-white p-2 shadow-2xl text-sm font-bold text-stone-900 z-50">
-              <button
-                onClick={() => {
-                  setViewPrefs((p) => ({ ...p, viewMode: 'fit' }));
-                  fitBoardToView('fit');
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Fit Overview (Full Board)</span>
-                {viewPrefs.viewMode === 'fit' && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <button
-                onClick={() => {
-                  setViewPrefs((p) => ({ ...p, viewMode: 'comfort' }));
-                  fitBoardToView('comfort');
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Comfort View (Large Tiles)</span>
-                {viewPrefs.viewMode === 'comfort' && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <hr className="my-1.5 border-stone-200" />
-              <button
-                onClick={() => {
-                  setViewPrefs((p) => ({ ...p, depthBoost: !p.depthBoost }));
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Depth Boost (3D Shift)</span>
-                {viewPrefs.depthBoost && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <button
-                onClick={() => {
-                  setViewPrefs((p) => ({ ...p, showFreeHighlights: !p.showFreeHighlights }));
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Highlight Playable Tiles</span>
-                {viewPrefs.showFreeHighlights && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <button
-                onClick={() => {
-                  setViewPrefs((p) => ({ ...p, showLayerNumbers: !p.showLayerNumbers }));
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Show Layer Numbers (L1–L6)</span>
-                {viewPrefs.showLayerNumbers && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <button
-                onClick={() => {
-                  setViewPrefs((p) => ({ ...p, largePrint: !p.largePrint }));
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Large Print Numbers</span>
-                {viewPrefs.largePrint && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <button
-                onClick={() => {
-                  setShowMiniMap((v) => !v);
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Mini Overview Map</span>
-                {showMiniMap && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Theme Menu */}
-        <div className="relative">
-          <button
-            onClick={() => setActiveMenu(activeMenu === 'theme' ? null : 'theme')}
-            className={`px-3.5 py-2 rounded-lg hover:bg-stone-200 transition ${
-              activeMenu === 'theme' ? 'bg-stone-200' : ''
-            }`}
-          >
-            Theme
-          </button>
-          {activeMenu === 'theme' && (
-            <div className="absolute left-0 top-full mt-1.5 w-64 rounded-2xl border border-stone-300 bg-white p-2 shadow-2xl text-sm font-bold text-stone-900 z-50">
-              <p className="px-3 py-1 text-[11px] font-black uppercase tracking-wider text-stone-400">
-                Tile Artwork
-              </p>
-              <button
-                onClick={() => {
-                  setThemeId('ner-heritage');
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>NER Heritage Tiles</span>
-                {themeId === 'ner-heritage' && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <button
-                onClick={() => {
-                  setThemeId('classic-ivory');
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Classic Ivory Tiles</span>
-                {themeId === 'classic-ivory' && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <hr className="my-1.5 border-stone-200" />
-              <p className="px-3 py-1 text-[11px] font-black uppercase tracking-wider text-stone-400">
-                Table Felt
-              </p>
-              <button
-                onClick={() => {
-                  setTableFelt('tea-garden');
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Tea Garden Green (Default)</span>
-                {tableFelt === 'tea-garden' && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <button
-                onClick={() => {
-                  setTableFelt('sand');
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Classic Sand Felt</span>
-                {tableFelt === 'sand' && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <button
-                onClick={() => {
-                  setTableFelt('brahmaputra-dusk');
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Brahmaputra Dusk</span>
-                {tableFelt === 'brahmaputra-dusk' && (
-                  <Check className="h-4 w-4 text-emerald-700" />
-                )}
-              </button>
-              <button
-                onClick={() => {
-                  setTableFelt('high-contrast');
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>High Contrast Charcoal</span>
-                {tableFelt === 'high-contrast' && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Help Menu */}
-        <div className="relative">
-          <button
-            onClick={() => setActiveMenu(activeMenu === 'help' ? null : 'help')}
-            className={`px-3.5 py-2 rounded-lg hover:bg-stone-200 transition ${
-              activeMenu === 'help' ? 'bg-stone-200' : ''
-            }`}
-          >
-            Help
-          </button>
-          {activeMenu === 'help' && (
-            <div className="absolute left-0 top-full mt-1.5 w-64 rounded-2xl border border-stone-300 bg-white p-2 shadow-2xl text-sm font-bold text-stone-900 z-50">
-              <button
-                onClick={() => {
-                  setShowTutorial(true);
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100"
-              >
-                How to Play (Tutorial)
-              </button>
-              <button
-                onClick={() => {
-                  setViewPrefs((p) => ({
-                    ...p,
-                    explainBlockedTiles: !p.explainBlockedTiles,
-                  }));
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Explain Blocked Tiles</span>
-                {viewPrefs.explainBlockedTiles && (
-                  <Check className="h-4 w-4 text-emerald-700" />
-                )}
-              </button>
-              <button
-                onClick={() => {
-                  setShowLegend(true);
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100"
-              >
-                Show Tile States Legend
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Quick Camera Buttons */}
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            onClick={() => {
-              const nextMode = viewPrefs.viewMode === 'fit' ? 'comfort' : 'fit';
-              setViewPrefs((p) => ({ ...p, viewMode: nextMode }));
-              fitBoardToView(nextMode);
-            }}
-            className="px-3 py-1.5 rounded-lg border border-stone-300 bg-stone-50 hover:bg-stone-100 text-xs font-black text-stone-700 transition flex items-center gap-1.5"
-          >
-            {viewPrefs.viewMode === 'fit' ? (
-              <>
-                <Minimize2 className="h-3.5 w-3.5 text-teal-700" /> Comfort View
-              </>
-            ) : (
-              <>
-                <Maximize2 className="h-3.5 w-3.5 text-teal-700" /> Fit Overview
-              </>
-            )}
-          </button>
-          <button
-            onClick={() => setZoom((z) => Math.min(2.0, z + 0.15))}
-            className="h-8 w-8 rounded-lg border border-stone-300 bg-stone-50 hover:bg-stone-100 flex items-center justify-center text-stone-700"
-            aria-label="Zoom in"
-          >
-            <ZoomIn className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setZoom((z) => Math.max(0.4, z - 0.15))}
-            className="h-8 w-8 rounded-lg border border-stone-300 bg-stone-50 hover:bg-stone-100 flex items-center justify-center text-stone-700"
-            aria-label="Zoom out"
-          >
-            <ZoomOut className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setPan({ x: 0, y: 0 })}
-            className="px-2.5 py-1.5 rounded-lg border border-stone-300 bg-stone-50 hover:bg-stone-100 text-xs font-black text-stone-700"
-          >
-            Recenter
-          </button>
-        </div>
-      </nav>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 3. MAIN MAHJONG TABLE AREA (3D Isometric Extrusion & Stacking) */}
+      {/* 2. DOMINANT TABLE CANVAS (3D Extrusion & Dynamic Fit Scale)   */}
       {/* ------------------------------------------------------------- */}
       <main
         ref={viewportRef}
         className="relative flex-1 overflow-hidden cursor-grab active:cursor-grabbing flex items-center justify-center p-2 sm:p-4"
       >
-        {/* Board Canvas with True Transformation */}
+        {/* Board Canvas with Transformation */}
         <div
-          className="relative transition-transform duration-75 origin-center"
+          className="relative transition-transform duration-100 origin-center"
           style={{
             width: `${boardTotalWidth}px`,
             height: `${boardTotalHeight}px`,
@@ -1189,8 +810,8 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
             // 3D Layer Elevation: +8px right, -8px up per layer z
             const elevationX = tile.z * layerShift;
             const elevationY = -tile.z * layerShift;
-            const pixelX = tile.x * halfX + elevationX + 24;
-            const pixelY = tile.y * halfY + elevationY + 24;
+            const pixelX = tile.x * halfX + elevationX + 20;
+            const pixelY = tile.y * halfY + elevationY + 20;
 
             // Collision-safe z-index formula: higher layer always renders above lower layer!
             // Clicking a blocked lower tile NEVER elevates its z-index above its covering tile.
@@ -1205,7 +826,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                 ? naturalZIndex + 50
                 : naturalZIndex;
 
-            // Shadow intensity proportional to layer
+            // Layer contact shadow
             const shadowIntensity =
               tile.z === 0
                 ? 'shadow-[2px_4px_6px_rgba(0,0,0,0.3)]'
@@ -1224,9 +845,9 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                   e.stopPropagation();
                   handleTileClick(tile);
                 }}
-                className={`mahjong-tile-btn absolute rounded-[7px] transition-all duration-150 cursor-pointer ${
+                className={`mahjong-tile-btn absolute rounded-[8px] transition-all duration-150 cursor-pointer ${
                   isSelected && isFree
-                    ? '-translate-y-2 scale-[1.04] ring-4 ring-amber-400 ring-offset-2 z-[9000]'
+                    ? '-translate-y-1.5 scale-[1.04] ring-4 ring-amber-400 ring-offset-2 z-[9000]'
                     : isHinted
                     ? 'ring-4 ring-emerald-400 animate-pulse'
                     : isMatching
@@ -1249,20 +870,20 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                   zIndex,
                 }}
                 aria-label={`${identity.nerName[selectedLanguage] || identity.nerName.English}, ${
-                  isFree ? 'free tile' : 'blocked'
+                  isFree ? 'playable tile' : 'blocked'
                 }, Layer ${tile.z + 1}`}
               >
                 {/* --------------------------------------------------- */}
-                {/* 3D TILE STRUCTURE: Front Face + Right & Bottom Depth */}
+                {/* 3D TILE STRUCTURE: Front Face + Extruded Depth Slabs */}
                 {/* --------------------------------------------------- */}
                 <div
-                  className={`relative w-full h-full rounded-[7px] border border-stone-300 ${shadowIntensity} flex flex-col items-center justify-center p-1 overflow-hidden transition-colors ${
+                  className={`relative w-full h-full rounded-[8px] border border-stone-300 ${shadowIntensity} flex flex-col items-center justify-center p-1 overflow-hidden transition-colors ${
                     isFree
-                      ? 'bg-[#fffdfa] text-stone-900 border-b-2 border-emerald-600/40'
+                      ? 'bg-[#fffdfa] text-stone-900 border-b-2 border-emerald-600/50'
                       : 'bg-[#f1f5f9] text-stone-800 shadow-inner'
                   }`}
                 >
-                  {/* Isometric Right Depth Face Extrusion */}
+                  {/* Isometric Right Depth Slab (7px) */}
                   <span
                     className="absolute -right-[7px] top-[4px] bottom-[4px] w-[7px] rounded-r-[4px] pointer-events-none"
                     style={{
@@ -1271,7 +892,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                     }}
                   />
 
-                  {/* Isometric Bottom Depth Face Extrusion */}
+                  {/* Isometric Bottom Depth Slab (8px) */}
                   <span
                     className="absolute -bottom-[8px] left-[4px] right-[4px] h-[8px] rounded-b-[4px] pointer-events-none"
                     style={{
@@ -1280,8 +901,8 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                     }}
                   />
 
-                  {/* Optional Layer Number Badge (L1–L6) */}
-                  {viewPrefs.showLayerNumbers && (
+                  {/* Optional Layer Label (L1–L6) */}
+                  {viewPrefs.showLayerLabels && (
                     <span
                       className={`absolute bottom-0.5 right-0.5 px-1 py-0.2 rounded text-[9px] font-black leading-tight ${
                         tile.z === 0
@@ -1319,9 +940,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
           })}
         </div>
 
-        {/* ------------------------------------------------------------- */}
-        {/* FLOATING DIAGNOSTIC MESSAGE CARD                              */}
-        {/* ------------------------------------------------------------- */}
+        {/* Diagnostic Feedback Toast Card */}
         {toastMessage && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 max-w-[min(90vw,480px)] w-full rounded-2xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-sm sm:text-base font-black text-amber-950 shadow-2xl animate-fadeIn flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -1337,50 +956,15 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
           </div>
         )}
 
-        {/* ------------------------------------------------------------- */}
-        {/* FIRST PLAY DISMISSIBLE LEGEND                                 */}
-        {/* ------------------------------------------------------------- */}
-        {showLegend && (
-          <div className="hidden lg:flex absolute bottom-4 left-4 z-30 flex-col gap-2 rounded-2xl border border-stone-300/40 bg-stone-900/80 p-3.5 backdrop-blur-md text-white shadow-xl max-w-xs text-xs font-bold">
-            <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
-              <span className="font-black uppercase tracking-wider text-amber-300">
-                Tile Help Legend
-              </span>
-              <button
-                onClick={dismissLegend}
-                className="h-6 w-6 rounded hover:bg-white/20 flex items-center justify-center text-stone-300"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-[#fffdfa] border border-emerald-500" />
-                <span>Bright face: Playable tile</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-[#cbd5e1]" />
-                <span>Cool face: Blocked from above/side</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-cyan-400" />
-                <span>Cyan outline: Covers the blocked tile</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ------------------------------------------------------------- */}
-        {/* ENHANCED MINI-MAP WITH HEATMAP & CAMERA RECENTER              */}
-        {/* ------------------------------------------------------------- */}
-        {showMiniMap && (
+        {/* Optional Mini-Map (Only when enabled in More) */}
+        {viewPrefs.showBoardMap && (
           <div className="hidden md:block absolute top-4 right-4 z-30 rounded-2xl border border-white/20 bg-stone-900/80 p-2.5 backdrop-blur-md text-white shadow-xl">
-            <div className="flex items-center justify-between mb-1.5 px-0.5">
+            <div className="flex items-center justify-between mb-1 px-0.5">
               <p className="text-[10px] font-black uppercase tracking-wider text-stone-400">
                 Board Map
               </p>
               <button
-                onClick={() => setShowMiniMap(false)}
+                onClick={() => setViewPrefs((p) => ({ ...p, showBoardMap: false }))}
                 className="h-4 w-4 text-stone-400 hover:text-white"
               >
                 <X className="h-3 w-3" />
@@ -1413,9 +997,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                         ? 'bg-stone-600'
                         : t.z === 1
                         ? 'bg-blue-400'
-                        : t.z === 2
-                        ? 'bg-amber-400'
-                        : 'bg-rose-400'
+                        : 'bg-amber-400'
                     }`}
                     style={{ left: `${px}%`, top: `${py}%` }}
                   />
@@ -1427,116 +1009,291 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
       </main>
 
       {/* ------------------------------------------------------------- */}
-      {/* 4. CLASSIC STATUS BAR & MOBILE ACTION BAR (Bottom)            */}
+      {/* 3. FLOATING ACTION DOCK (Desktop Pill / Mobile Safe-Area Bar)   */}
       {/* ------------------------------------------------------------- */}
-      <footer className="shrink-0 border-t border-black/15 bg-white text-stone-900 pb-[env(safe-area-inset-bottom)] shadow-2xl z-30">
-        {/* Status Strip with 3 Equal Columns */}
-        <div className="grid grid-cols-3 border-b border-stone-200 px-3 py-2 text-center text-xs sm:text-sm font-bold text-stone-700">
-          <div className="border-r border-stone-200 px-2">
-            <span className="block text-base sm:text-xl font-black text-stone-950">
-              {activeTiles.length}
-            </span>
-            <span className="text-[11px] sm:text-xs text-stone-500 font-semibold uppercase tracking-wider">
-              Tiles Left
-            </span>
-          </div>
-          <div className="border-r border-stone-200 px-2">
-            <span
-              className={`block text-base sm:text-xl font-black ${
-                availableMatches.length > 0 ? 'text-emerald-700' : 'text-amber-700'
-              }`}
-            >
-              {availableMatches.length}
-            </span>
-            <span className="text-[11px] sm:text-xs text-stone-500 font-semibold uppercase tracking-wider">
-              Available
-            </span>
-          </div>
-          <div className="px-2">
-            <span className="block text-base sm:text-xl font-black text-stone-950">
-              {pairsCleared}
-            </span>
-            <span className="text-[11px] sm:text-xs text-stone-500 font-semibold uppercase tracking-wider">
-              Cleared
-            </span>
-          </div>
-        </div>
-
-        {/* Bottom Actions (>=56px touch targets) */}
-        <div className="flex items-center justify-around gap-2 px-3 py-2 max-w-xl mx-auto">
+      <footer className="shrink-0 p-3 sm:pb-5 flex justify-center z-30">
+        {/* Desktop Floating Pill Dock */}
+        <div className="hidden sm:flex items-center gap-3 rounded-full border border-black/15 bg-white/95 px-6 py-2.5 shadow-2xl backdrop-blur-md text-stone-800">
           <button
             onClick={handleUndo}
             disabled={!moveHistory.length}
-            className="flex-1 flex min-h-14 flex-col sm:flex-row items-center justify-center gap-1 rounded-2xl border border-stone-300 bg-stone-50 font-black text-stone-800 hover:bg-stone-100 disabled:opacity-30 transition"
+            className="flex items-center gap-2 px-4 py-2 rounded-full font-black text-sm hover:bg-stone-100 disabled:opacity-30 transition"
           >
-            <CornerUpLeft className="h-5 w-5" />
-            <span className="text-xs sm:text-sm">Undo</span>
+            <CornerUpLeft className="h-4 w-4" />
+            <span>Undo</span>
           </button>
+
+          <div className="h-5 w-[1px] bg-stone-300" />
 
           <button
             onClick={handleHint}
-            className="flex-1 flex min-h-14 flex-col sm:flex-row items-center justify-center gap-1 rounded-2xl border border-amber-300 bg-amber-50 font-black text-amber-900 hover:bg-amber-100 transition"
+            className="flex items-center gap-2 px-4 py-2 rounded-full font-black text-sm text-teal-900 hover:bg-teal-50 transition"
           >
-            <Search className="h-5 w-5 text-amber-700" />
-            <span className="text-xs sm:text-sm">Hint</span>
+            <Search className="h-4 w-4 text-teal-700" />
+            <span>Hint</span>
           </button>
 
-          <button
-            onClick={() => {
-              const next = viewPrefs.viewMode === 'fit' ? 'comfort' : 'fit';
-              setViewPrefs((p) => ({ ...p, viewMode: next }));
-              fitBoardToView(next);
-            }}
-            className="flex-1 flex min-h-14 flex-col sm:flex-row items-center justify-center gap-1 rounded-2xl border border-teal-300 bg-teal-50 font-black text-teal-900 hover:bg-teal-100 transition"
-          >
-            {viewPrefs.viewMode === 'fit' ? (
-              <>
-                <Minimize2 className="h-5 w-5 text-teal-700" />
-                <span className="text-xs sm:text-sm">Comfort</span>
-              </>
-            ) : (
-              <>
-                <Maximize2 className="h-5 w-5 text-teal-700" />
-                <span className="text-xs sm:text-sm">Fit</span>
-              </>
-            )}
-          </button>
+          <div className="h-5 w-[1px] bg-stone-300" />
 
           <button
-            onClick={() => setShowMobileMoreSheet(true)}
-            className="flex-1 flex min-h-14 flex-col sm:flex-row items-center justify-center gap-1 rounded-2xl border border-stone-300 bg-stone-100 font-black text-stone-800 hover:bg-stone-200 transition"
+            onClick={handleShuffleRequest}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full font-black text-sm transition ${
+              availableMatches.length === 0
+                ? 'bg-teal-800 text-white shadow-md animate-pulse'
+                : 'text-stone-800 hover:bg-stone-100'
+            }`}
           >
-            <MoreHorizontal className="h-5 w-5" />
-            <span className="text-xs sm:text-sm">More</span>
+            <RefreshCw className="h-4 w-4" />
+            <span>Shuffle</span>
           </button>
+
+          <div className="h-5 w-[1px] bg-stone-300" />
+
+          <button
+            onClick={() => setShowMoreSheet(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-full font-black text-sm text-stone-700 hover:bg-stone-100 transition"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+            <span>More</span>
+          </button>
+        </div>
+
+        {/* Mobile Full-Width Action Dock */}
+        <div className="sm:hidden w-full rounded-2xl border border-black/15 bg-white/95 p-2 shadow-2xl backdrop-blur-md">
+          {/* Mobile inline status line */}
+          <div className="flex items-center justify-around border-b border-stone-200 pb-1.5 mb-1.5 text-xs font-black text-stone-700">
+            <span>{activeTiles.length} tiles</span>
+            <span>·</span>
+            <span className={availableMatches.length > 0 ? 'text-teal-800' : 'text-amber-800'}>
+              {availableMatches.length} pair{availableMatches.length !== 1 ? 's' : ''} available
+            </span>
+            <span>·</span>
+            <span>{pairsCleared} cleared</span>
+          </div>
+
+          <div className="grid grid-cols-4 gap-1.5">
+            <button
+              onClick={handleUndo}
+              disabled={!moveHistory.length}
+              className="flex min-h-14 flex-col items-center justify-center rounded-xl bg-stone-50 font-black text-stone-800 disabled:opacity-30"
+            >
+              <CornerUpLeft className="h-5 w-5" />
+              <span className="text-[11px] mt-0.5">Undo</span>
+            </button>
+
+            <button
+              onClick={handleHint}
+              className="flex min-h-14 flex-col items-center justify-center rounded-xl bg-teal-50 font-black text-teal-900"
+            >
+              <Search className="h-5 w-5 text-teal-700" />
+              <span className="text-[11px] mt-0.5">Hint</span>
+            </button>
+
+            <button
+              onClick={handleShuffleRequest}
+              className={`flex min-h-14 flex-col items-center justify-center rounded-xl font-black ${
+                availableMatches.length === 0
+                  ? 'bg-teal-800 text-white shadow-md'
+                  : 'bg-stone-50 text-stone-800'
+              }`}
+            >
+              <RefreshCw className="h-5 w-5" />
+              <span className="text-[11px] mt-0.5">Shuffle</span>
+            </button>
+
+            <button
+              onClick={() => setShowMoreSheet(true)}
+              className="flex min-h-14 flex-col items-center justify-center rounded-xl bg-stone-100 font-black text-stone-800"
+            >
+              <SlidersHorizontal className="h-5 w-5 text-amber-800" />
+              <span className="text-[11px] mt-0.5">More</span>
+            </button>
+          </div>
         </div>
       </footer>
 
       {/* ------------------------------------------------------------- */}
-      {/* 5. MODALS & SHEETS                                            */}
+      {/* 4. UNIFIED "MORE" OPTIONS SHEET / DIALOG                      */}
       {/* ------------------------------------------------------------- */}
+      {showMoreSheet && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/65 p-0 sm:p-4 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-xl max-h-[90vh] flex flex-col rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="p-5 border-b border-stone-200 flex items-center justify-between bg-stone-50">
+              <div className="flex items-center gap-2.5">
+                <SlidersHorizontal className="h-5 w-5 text-teal-800" />
+                <h3 className="text-xl font-black text-stone-900">Mahjong Options</h3>
+              </div>
+              <button
+                onClick={() => setShowMoreSheet(false)}
+                className="h-10 w-10 rounded-xl border border-stone-200 bg-white flex items-center justify-center text-stone-700 hover:bg-stone-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
 
-      {/* STAGE SELECTOR & TESTING MODE MODAL */}
-      {showStageModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-3 sm:p-5 backdrop-blur-md">
-          <div className="w-full max-w-4xl max-h-[90vh] flex flex-col rounded-3xl bg-white shadow-2xl overflow-hidden animate-fadeIn">
-            {/* Sticky Header with Testing Mode Switch */}
-            <div className="p-5 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-stone-50">
+            {/* Content Sections */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5 text-sm font-bold text-stone-800">
+              {/* SECTION: Stage & Layout */}
               <div>
-                <h2 className="text-2xl font-black text-stone-900">Choose Mahjong Layout</h2>
-                <p className="text-xs sm:text-sm font-semibold text-stone-500 mt-0.5">
-                  12 curated layered formations (24 to 144 tiles)
+                <p className="text-xs font-black uppercase tracking-wider text-stone-400 mb-2">
+                  Board Layout
                 </p>
+                <button
+                  onClick={() => {
+                    setShowMoreSheet(false);
+                    setShowStageModal(true);
+                  }}
+                  className="w-full min-h-14 p-3.5 rounded-2xl border-2 border-teal-200 bg-teal-50/70 hover:bg-teal-100 flex items-center justify-between text-teal-950 transition"
+                >
+                  <div>
+                    <span className="block text-xs font-black uppercase tracking-wider text-teal-800">
+                      Choose Stage (1–12)
+                    </span>
+                    <span className="block text-base font-black">
+                      Stage {stage}: {layout.name[selectedLanguage] || layout.name.English}
+                    </span>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-teal-700" />
+                </button>
               </div>
 
-              {/* Mahjong Testing Mode Switch */}
-              <div className="flex items-center gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 px-4 py-2.5">
-                <div className="min-w-0">
+              {/* SECTION: View & Camera Controls */}
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-stone-400 mb-2">
+                  View & Zoom
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => {
+                      setViewPrefs((p) => ({ ...p, viewMode: 'fit' }));
+                      fitBoardToView('fit');
+                    }}
+                    className={`p-3 rounded-xl border-2 flex items-center justify-between ${
+                      viewPrefs.viewMode === 'fit'
+                        ? 'border-teal-700 bg-teal-50 text-teal-950'
+                        : 'border-stone-200 bg-stone-50'
+                    }`}
+                  >
+                    <span>Fit Overview</span>
+                    {viewPrefs.viewMode === 'fit' && <Check className="h-4 w-4 text-teal-700" />}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setViewPrefs((p) => ({ ...p, viewMode: 'comfort' }));
+                      fitBoardToView('comfort');
+                    }}
+                    className={`p-3 rounded-xl border-2 flex items-center justify-between ${
+                      viewPrefs.viewMode === 'comfort'
+                        ? 'border-teal-700 bg-teal-50 text-teal-950'
+                        : 'border-stone-200 bg-stone-50'
+                    }`}
+                  >
+                    <span>Comfort Zoom</span>
+                    {viewPrefs.viewMode === 'comfort' && (
+                      <Check className="h-4 w-4 text-teal-700" />
+                    )}
+                  </button>
+                </div>
+
+                <div className="mt-2.5 space-y-1.5">
+                  <button
+                    onClick={() =>
+                      setViewPrefs((p) => ({
+                        ...p,
+                        showFreeHighlights: !p.showFreeHighlights,
+                      }))
+                    }
+                    className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 flex items-center justify-between"
+                  >
+                    <span>Highlight Playable Tiles</span>
+                    {viewPrefs.showFreeHighlights && <Check className="h-4 w-4 text-emerald-700" />}
+                  </button>
+                  <button
+                    onClick={() =>
+                      setViewPrefs((p) => ({ ...p, showLayerLabels: !p.showLayerLabels }))
+                    }
+                    className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 flex items-center justify-between"
+                  >
+                    <span>Show Layer Numbers (L1–L6)</span>
+                    {viewPrefs.showLayerLabels && <Check className="h-4 w-4 text-emerald-700" />}
+                  </button>
+                  <button
+                    onClick={() => setViewPrefs((p) => ({ ...p, largePrint: !p.largePrint }))}
+                    className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 flex items-center justify-between"
+                  >
+                    <span>Large Print Numerals</span>
+                    {viewPrefs.largePrint && <Check className="h-4 w-4 text-emerald-700" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* SECTION: Themes */}
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-stone-400 mb-2">
+                  Table Felt & Artwork
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setTableFelt('tea-garden')}
+                    className={`p-3 rounded-xl border-2 flex items-center justify-between ${
+                      tableFelt === 'tea-garden'
+                        ? 'border-emerald-700 bg-emerald-50 text-emerald-950'
+                        : 'border-stone-200 bg-stone-50'
+                    }`}
+                  >
+                    <span>Tea Garden Green</span>
+                    {tableFelt === 'tea-garden' && (
+                      <Check className="h-4 w-4 text-emerald-700" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setTableFelt('sand')}
+                    className={`p-3 rounded-xl border-2 flex items-center justify-between ${
+                      tableFelt === 'sand'
+                        ? 'border-amber-700 bg-amber-50 text-amber-950'
+                        : 'border-stone-200 bg-stone-50'
+                    }`}
+                  >
+                    <span>Classic Sand</span>
+                    {tableFelt === 'sand' && <Check className="h-4 w-4 text-amber-700" />}
+                  </button>
+                </div>
+
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setThemeId('ner-heritage')}
+                    className={`p-3 rounded-xl border-2 flex items-center justify-between ${
+                      themeId === 'ner-heritage'
+                        ? 'border-teal-700 bg-teal-50 text-teal-950'
+                        : 'border-stone-200 bg-stone-50'
+                    }`}
+                  >
+                    <span>NER Heritage Tiles</span>
+                    {themeId === 'ner-heritage' && <Check className="h-4 w-4 text-teal-700" />}
+                  </button>
+                  <button
+                    onClick={() => setThemeId('classic-ivory')}
+                    className={`p-3 rounded-xl border-2 flex items-center justify-between ${
+                      themeId === 'classic-ivory'
+                        ? 'border-teal-700 bg-teal-50 text-teal-950'
+                        : 'border-stone-200 bg-stone-50'
+                    }`}
+                  >
+                    <span>Classic Ivory Tiles</span>
+                    {themeId === 'classic-ivory' && <Check className="h-4 w-4 text-teal-700" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* SECTION: Testing Mode Switch */}
+              <div className="p-4 rounded-2xl border-2 border-amber-300 bg-amber-50 flex items-center justify-between gap-3">
+                <div>
                   <span className="block text-xs font-black uppercase tracking-wider text-amber-900">
-                    Testing Mode (Unlock All)
+                    Testing Mode (Unlock All 12 Stages)
                   </span>
                   <span className="block text-[11px] font-semibold text-amber-700">
-                    Session only · No progress side-effects
+                    Session only · Zero progress side-effects
                   </span>
                 </div>
                 <button
@@ -1554,16 +1311,60 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                 </button>
               </div>
 
+              {/* SECTION: Actions */}
+              <div className="pt-2 border-t border-stone-200 flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    setShowMoreSheet(false);
+                    setShowTutorial(true);
+                  }}
+                  className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-center gap-2"
+                >
+                  <HelpCircle className="h-4 w-4" /> How to Play Tutorial
+                </button>
+                <button
+                  onClick={handleRestartDeal}
+                  className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-center gap-2"
+                >
+                  Restart This Board
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMoreSheet(false);
+                    onBack();
+                  }}
+                  className="min-h-12 w-full rounded-2xl border-2 border-rose-200 bg-rose-50 font-bold text-rose-800 hover:bg-rose-100 flex items-center justify-center gap-2"
+                >
+                  Save & Exit to Menu
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* 5. STAGE SELECTOR MODAL                                       */}
+      {/* ------------------------------------------------------------- */}
+      {showStageModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-3 sm:p-5 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-4xl max-h-[90vh] flex flex-col rounded-3xl bg-white shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-stone-200 flex items-center justify-between bg-stone-50">
+              <div>
+                <h2 className="text-2xl font-black text-stone-900">Choose Mahjong Layout</h2>
+                <p className="text-xs sm:text-sm font-semibold text-stone-500 mt-0.5">
+                  12 curated layered formations (24 to 144 tiles)
+                </p>
+              </div>
               <button
                 onClick={() => setShowStageModal(false)}
-                className="hidden sm:flex h-10 w-10 rounded-xl border border-stone-200 bg-white items-center justify-center text-stone-700 hover:bg-stone-100"
+                className="h-10 w-10 rounded-xl border border-stone-200 bg-white flex items-center justify-center text-stone-700 hover:bg-stone-100"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            {/* Scrollable Stage Cards Grid */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {mahjongLayouts.map((l) => {
                 const isUnlocked = l.stage <= effectiveUnlockedStage;
                 const isCurrent = l.stage === stage;
@@ -1616,107 +1417,20 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                 );
               })}
             </div>
-
-            {/* Mobile Close Bar */}
-            <div className="sm:hidden p-3 border-t border-stone-200 bg-stone-50">
-              <button
-                onClick={() => setShowStageModal(false)}
-                className="w-full min-h-12 rounded-xl bg-stone-900 font-black text-white"
-              >
-                Close
-              </button>
-            </div>
           </div>
         </div>
       )}
 
-      {/* MOBILE MORE ACTIONS SHEET */}
-      {showMobileMoreSheet && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5 shadow-2xl animate-fadeIn">
-            <div className="flex items-center justify-between border-b pb-3 mb-4">
-              <h3 className="text-xl font-black text-stone-900">Game Options</h3>
-              <button
-                onClick={() => setShowMobileMoreSheet(false)}
-                className="h-9 w-9 rounded-xl border flex items-center justify-center"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2.5">
-              <button
-                onClick={() => {
-                  handleShuffleRequest();
-                  setShowMobileMoreSheet(false);
-                }}
-                className="min-h-12 w-full rounded-2xl border border-teal-300 bg-teal-50 font-black text-teal-900 flex items-center justify-center gap-2"
-              >
-                <RefreshCw className="h-4 w-4" /> Shuffle Remaining Tiles
-              </button>
-              <button
-                onClick={() => {
-                  setShowStageModal(true);
-                  setShowMobileMoreSheet(false);
-                }}
-                className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-center gap-2"
-              >
-                <Compass className="h-4 w-4" /> Choose Stage (1–12)
-              </button>
-              <button
-                onClick={() => {
-                  handleRestartDeal();
-                  setShowMobileMoreSheet(false);
-                }}
-                className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-center gap-2"
-              >
-                Restart This Board
-              </button>
-              <button
-                onClick={() => {
-                  setViewPrefs((p) => ({
-                    ...p,
-                    showLayerNumbers: !p.showLayerNumbers,
-                  }));
-                  setShowMobileMoreSheet(false);
-                }}
-                className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-between px-4"
-              >
-                <span>Show Layer Numbers (L1–L6)</span>
-                {viewPrefs.showLayerNumbers && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <button
-                onClick={() => {
-                  setViewPrefs((p) => ({ ...p, largePrint: !p.largePrint }));
-                  setShowMobileMoreSheet(false);
-                }}
-                className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-between px-4"
-              >
-                <span>Large Print Numbers</span>
-                {viewPrefs.largePrint && <Check className="h-4 w-4 text-emerald-700" />}
-              </button>
-              <button
-                onClick={() => {
-                  setShowTutorial(true);
-                  setShowMobileMoreSheet(false);
-                }}
-                className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-center gap-2"
-              >
-                <HelpCircle className="h-4 w-4" /> How to Play Tutorial
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SHUFFLE CONFIRMATION MODAL */}
+      {/* ------------------------------------------------------------- */}
+      {/* 6. SHUFFLE CONFIRMATION MODAL                                 */}
+      {/* ------------------------------------------------------------- */}
       {showShuffleConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl">
             <h3 className="text-xl font-black text-stone-900">Matches Are Still Available</h3>
             <p className="mt-2 text-sm font-semibold text-stone-600">
-              There are still {availableMatches.length} matching pairs available on the board. Do you
-              wish to rearrange the tiles anyway?
+              There are {availableMatches.length} matching pairs available on the board. Do you wish
+              to rearrange the tiles anyway?
             </p>
             <div className="mt-5 flex flex-col gap-2.5">
               <button
@@ -1736,17 +1450,18 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
         </div>
       )}
 
-      {/* DEAD-END NO MOVES MODAL */}
+      {/* ------------------------------------------------------------- */}
+      {/* 7. DEAD-END NO MOVES MODAL                                    */}
+      {/* ------------------------------------------------------------- */}
       {showNoMovesModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-2xl animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-2xl">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-100 text-amber-800 mb-3">
               <RefreshCw className="h-8 w-8" />
             </div>
-            <h2 className="text-2xl font-black text-stone-900">No Free Matches Available</h2>
+            <h2 className="text-2xl font-black text-stone-900">No Free Pairs Right Now</h2>
             <p className="mt-2 text-sm font-semibold text-stone-600">
-              Your choices have reached a natural dead end. You can rearrange the remaining tiles or
-              undo your recent moves.
+              Your choices have closed this branch. You can rearrange the remaining tiles or step back.
             </p>
 
             <div className="mt-6 flex flex-col gap-3">
@@ -1761,7 +1476,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                 onClick={handleUndo}
                 className="min-h-12 w-full rounded-2xl border-2 border-stone-300 bg-stone-50 font-black text-stone-800 hover:bg-stone-100 disabled:opacity-40 transition flex items-center justify-center gap-2"
               >
-                <CornerUpLeft className="h-4 w-4" /> Undo Last Match
+                <CornerUpLeft className="h-4 w-4" /> Undo Last Pair
               </button>
               <button
                 onClick={handleRestartDeal}
@@ -1774,10 +1489,12 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
         </div>
       )}
 
-      {/* PAUSE MENU MODAL */}
+      {/* ------------------------------------------------------------- */}
+      {/* 8. PAUSE SHEET                                                */}
+      {/* ------------------------------------------------------------- */}
       {isPaused && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl">
             <h2 className="text-2xl font-black text-stone-900 mb-4">Game Paused</h2>
             <div className="space-y-2.5">
               <button
@@ -1821,10 +1538,12 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
         </div>
       )}
 
-      {/* HOW TO PLAY TUTORIAL */}
+      {/* ------------------------------------------------------------- */}
+      {/* 9. HOW TO PLAY TUTORIAL                                       */}
+      {/* ------------------------------------------------------------- */}
       {showTutorial && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-md">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
             <h2 className="text-2xl font-black text-stone-900 mb-2">How to Play Mahjong Solitaire</h2>
             <div className="space-y-3 text-sm font-semibold text-stone-700 mt-4">
               <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200 flex items-start gap-3">
@@ -1875,10 +1594,12 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
         </div>
       )}
 
-      {/* COMPLETION CELEBRATION MODAL */}
+      {/* ------------------------------------------------------------- */}
+      {/* 10. BOARD CLEARED CELEBRATION MODAL                           */}
+      {/* ------------------------------------------------------------- */}
       {isCompleted && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
-          <div className="w-full max-w-md rounded-3xl bg-white p-7 text-center shadow-2xl animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-md rounded-3xl bg-white p-7 text-center shadow-2xl">
             <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-amber-500 shadow-xl mb-4">
               <Flower2 className="h-12 w-12 text-teal-950" />
             </div>
@@ -1893,7 +1614,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
 
             {!testingState.enabled && (
               <p className="mt-1 text-xs font-bold text-emerald-800 flex items-center justify-center gap-1.5">
-                <Sparkles className="h-4 w-4" /> 1 flower added to your Memory Garden!
+                <Sparkles className="h-4 w-4" /> 1 fresh flower added to your Memory Garden!
               </p>
             )}
 

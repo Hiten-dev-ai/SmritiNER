@@ -17,7 +17,7 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
   const { symbolKey, number, suit, isFlower, isSeason } = identity;
 
   // -----------------------------------------------------------------
-  // CLASSIC IVORY THEME ICONS (Vector traditional Mahjong style)
+  // CLASSIC IVORY THEME (Traditional vector Mahjong style)
   // -----------------------------------------------------------------
   if (theme === 'classic-ivory') {
     // CIRCLES (Dots)
@@ -109,10 +109,13 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
               )}
             </g>
           )}
-          {largePrint && number && (
-            <text x="12" y="24" fontSize="18" fontWeight="900" fill="#0f172a" textAnchor="middle">
-              {number}
-            </text>
+          {number && (
+            <g>
+              <rect x="3" y="3" width={largePrint ? "22" : "18"} height={largePrint ? "22" : "18"} rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
+              <text x={largePrint ? "14" : "12"} y={largePrint ? "20" : "17"} fontSize={largePrint ? "18" : "14"} fontWeight="900" fill="#0f172a" textAnchor="middle">
+                {number}
+              </text>
+            </g>
           )}
         </svg>
       );
@@ -123,7 +126,6 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
       return (
         <svg viewBox="0 0 100 100" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
           {number === 1 && (
-            // Peacock/Bird for 1-Bamboo
             <g>
               <path d="M50 20 C60 20 68 28 68 40 C68 60 50 78 50 78 C50 78 32 60 32 40 C32 28 40 20 50 20 Z" fill="#047857" />
               <circle cx="50" cy="34" r="8" fill="#dc2626" />
@@ -209,10 +211,13 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
               )}
             </g>
           )}
-          {largePrint && number && (
-            <text x="12" y="24" fontSize="18" fontWeight="900" fill="#0f172a" textAnchor="middle">
-              {number}
-            </text>
+          {number && (
+            <g>
+              <rect x="3" y="3" width={largePrint ? "22" : "18"} height={largePrint ? "22" : "18"} rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
+              <text x={largePrint ? "14" : "12"} y={largePrint ? "20" : "17"} fontSize={largePrint ? "18" : "14"} fontWeight="900" fill="#0f172a" textAnchor="middle">
+                {number}
+              </text>
+            </g>
           )}
         </svg>
       );
@@ -224,16 +229,19 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
       const char = chineseChars[(number || 1) - 1];
       return (
         <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
-          <text x="50" y="44" fontSize="34" fontWeight="900" fill="#0284c7" textAnchor="middle" dominantBaseline="central">
+          <text x="50" y="42" fontSize="34" fontWeight="900" fill="#0284c7" textAnchor="middle" dominantBaseline="central">
             {char}
           </text>
           <text x="50" y="78" fontSize="28" fontWeight="900" fill="#dc2626" textAnchor="middle" dominantBaseline="central">
             萬
           </text>
-          {largePrint && number && (
-            <text x="12" y="24" fontSize="18" fontWeight="900" fill="#0f172a" textAnchor="middle">
-              {number}
-            </text>
+          {number && (
+            <g>
+              <rect x="3" y="3" width={largePrint ? "22" : "18"} height={largePrint ? "22" : "18"} rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
+              <text x={largePrint ? "14" : "12"} y={largePrint ? "20" : "17"} fontSize={largePrint ? "18" : "14"} fontWeight="900" fill="#0f172a" textAnchor="middle">
+                {number}
+              </text>
+            </g>
           )}
         </svg>
       );
@@ -247,9 +255,6 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
         <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
           <text x="50" y="55" fontSize="48" fontWeight="900" fill="#0f172a" textAnchor="middle" dominantBaseline="central">
             {windChar}
-          </text>
-          <text x="50" y="88" fontSize="13" fontWeight="900" fill="#64748b" textAnchor="middle">
-            {symbolKey.replace('wind_', '').toUpperCase()}
           </text>
         </svg>
       );
@@ -275,10 +280,10 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
           </svg>
         );
       }
-      // White dragon (blank or blue framed box)
+      // White dragon
       return (
         <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
-          <rect x="22" y="20" width="56" height="60" rx="4" fill="none" stroke="#0284c7" strokeWidth="6" strokeDasharray="10 4" />
+          <rect x="20" y="18" width="60" height="64" rx="4" fill="none" stroke="#0284c7" strokeWidth="6" strokeDasharray="12 4" />
         </svg>
       );
     }
@@ -287,12 +292,9 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
     if (isFlower || isSeason) {
       return (
         <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
-          <circle cx="50" cy="50" r="32" fill={isFlower ? '#fdf2f8' : '#eff6ff'} stroke={isFlower ? '#db2777' : '#2563eb'} strokeWidth="3" />
-          <text x="50" y="52" fontSize="28" fontWeight="900" fill={isFlower ? '#be185d' : '#1d4ed8'} textAnchor="middle" dominantBaseline="central">
+          <circle cx="50" cy="50" r="34" fill={isFlower ? '#fdf2f8' : '#eff6ff'} stroke={isFlower ? '#db2777' : '#2563eb'} strokeWidth="3.5" />
+          <text x="50" y="52" fontSize="36" textAnchor="middle" dominantBaseline="central">
             {isFlower ? '🌸' : '🌤️'}
-          </text>
-          <text x="50" y="88" fontSize="12" fontWeight="900" fill="#475569" textAnchor="middle">
-            {isFlower ? 'FLOWER' : 'SEASON'}
           </text>
         </svg>
       );
@@ -300,7 +302,7 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
   }
 
   // -----------------------------------------------------------------
-  // NER HERITAGE THEME ICONS (Original crisp vector cultural symbols)
+  // NER HERITAGE THEME (Consistent vector cultural symbols)
   // -----------------------------------------------------------------
 
   return (
@@ -308,10 +310,10 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
       {/* Corner suit / family badge */}
       {number && (
         <g>
-          <rect x="4" y="4" width={largePrint ? "22" : "18"} height={largePrint ? "22" : "18"} rx="4" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1" />
+          <rect x="3" y="3" width={largePrint ? "22" : "18"} height={largePrint ? "22" : "18"} rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
           <text
-            x={largePrint ? "15" : "13"}
-            y={largePrint ? "21" : "18"}
+            x={largePrint ? "14" : "12"}
+            y={largePrint ? "20" : "17"}
             fontSize={largePrint ? "18" : "14"}
             fontWeight="900"
             fill="#0f172a"
@@ -422,7 +424,7 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
 
       {symbolKey === 'gamosa' && (
         <g>
-          <rect x="22" y="24" width="56" height="52" rx="4" fill="#ffffff" stroke="#e2e8f0" strokeWidth="2" />
+          <rect x="22" y="24" width="56" height="52" rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="2" />
           <rect x="22" y="24" width="56" height="12" fill="#dc2626" />
           <rect x="22" y="64" width="56" height="12" fill="#dc2626" />
           <path d="M30 30 L36 26 L42 30 L48 26 L54 30 L60 26 L66 30 L72 26" stroke="#ffffff" strokeWidth="2" />
@@ -558,12 +560,9 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
       {/* WILD FLOWERS */}
       {isFlower && (
         <g>
-          <circle cx="50" cy="50" r="28" fill="#fdf2f8" stroke="#db2777" strokeWidth="2" />
-          <text x="50" y="55" fontSize="30" textAnchor="middle" dominantBaseline="central">
+          <circle cx="50" cy="50" r="34" fill="#fdf2f8" stroke="#db2777" strokeWidth="3.5" />
+          <text x="50" y="52" fontSize="36" textAnchor="middle" dominantBaseline="central">
             🌸
-          </text>
-          <text x="50" y="86" fontSize="10" fontWeight="900" fill="#be185d" textAnchor="middle">
-            FLOWER
           </text>
         </g>
       )}
@@ -571,12 +570,9 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
       {/* WILD SEASONS */}
       {isSeason && (
         <g>
-          <circle cx="50" cy="50" r="28" fill="#eff6ff" stroke="#2563eb" strokeWidth="2" />
-          <text x="50" y="55" fontSize="30" textAnchor="middle" dominantBaseline="central">
+          <circle cx="50" cy="50" r="34" fill="#eff6ff" stroke="#2563eb" strokeWidth="3.5" />
+          <text x="50" y="52" fontSize="36" textAnchor="middle" dominantBaseline="central">
             🌤️
-          </text>
-          <text x="50" y="86" fontSize="10" fontWeight="900" fill="#1d4ed8" textAnchor="middle">
-            SEASON
           </text>
         </g>
       )}
@@ -584,22 +580,18 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
       {/* WINDS & DRAGONS FALLBACK IN NER THEME */}
       {suit === 'winds' && (
         <g>
-          <text x="50" y="50" fontSize="36" fontWeight="900" fill="#0f172a" textAnchor="middle" dominantBaseline="central">
+          <circle cx="50" cy="50" r="32" fill="#f8fafc" stroke="#475569" strokeWidth="3" />
+          <text x="50" y="52" fontSize="34" textAnchor="middle" dominantBaseline="central">
             🧭
-          </text>
-          <text x="50" y="84" fontSize="12" fontWeight="900" fill="#475569" textAnchor="middle">
-            {symbolKey.replace('wind_', '').toUpperCase()}
           </text>
         </g>
       )}
 
       {suit === 'dragons' && (
         <g>
-          <text x="50" y="50" fontSize="36" fontWeight="900" textAnchor="middle" dominantBaseline="central">
+          <circle cx="50" cy="50" r="32" fill="#f8fafc" stroke="#475569" strokeWidth="3" />
+          <text x="50" y="52" fontSize="34" textAnchor="middle" dominantBaseline="central">
             {symbolKey === 'dragon_red' ? '🏮' : symbolKey === 'dragon_green' ? '🐉' : '🪞'}
-          </text>
-          <text x="50" y="84" fontSize="11" fontWeight="900" fill="#475569" textAnchor="middle">
-            {symbolKey === 'dragon_red' ? 'CHUNAR' : symbolKey === 'dragon_green' ? 'FOREST' : 'PEARL'}
           </text>
         </g>
       )}

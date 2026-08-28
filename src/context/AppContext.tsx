@@ -4,6 +4,7 @@ import { api, ApiError } from '../services/api';
 import { audioManager } from '../services/audioManager';
 import { translations, type LanguageCode, type TranslationDictionary } from '../services/translations';
 import { readAloudService } from '../services/readAloudService';
+import { chatService } from '../services/chatService';
 
 type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated';
 interface RegisterInput { displayName: string; username: string; email: string; password: string }
@@ -161,6 +162,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
   const logout = async () => {
     try { if (!isOfflineSession) await api.logout(); } catch { /* local logout remains available */ }
+    void chatService.clearChatCache();
     const hasPendingResults = Object.keys(localStorage).some((key) => key.startsWith('smriti-session-outbox-') && localStorage.getItem(key) !== '[]');
     if (!hasPendingResults) Object.keys(localStorage).filter((key) => key.startsWith('smriti-sessions-')).forEach((key) => localStorage.removeItem(key));
     localStorage.removeItem(authCacheKey); setUser(null); setPatients([]); setCurrentPatientState(null); setAuthStatus('unauthenticated'); setOfflineSession(false);

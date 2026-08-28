@@ -1,0 +1,26 @@
+import React, { useState } from 'react';
+import { ImagePlus, Images, Sparkles } from 'lucide-react';
+import type { ReminiscencePhoto } from '../../types';
+import { api } from '../../services/api';
+
+interface MemoryManagerProps { patientId: string; photos: ReminiscencePhoto[]; onAdded: (photo: ReminiscencePhoto) => void }
+
+export const MemoryManager: React.FC<MemoryManagerProps> = ({ patientId, photos, onAdded }) => {
+  const [file, setFile] = useState<File | null>(null);
+  const [form, setForm] = useState({ title: '', relationshipOrPlace: '', year: '', memoryPromptQuestion: '', correctAnswer: '', audioPromptHint: '' });
+  const [saving, setSaving] = useState(false); const [error, setError] = useState('');
+  const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setError('');
+    if (!file) { setError('Choose a family or place photo first.'); return; }
+    if (file.size > 4 * 1024 * 1024) { setError('Choose an image smaller than 4 MB.'); return; }
+    setSaving(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error('Unable to read that image.')); reader.readAsDataURL(file); });
+      const result = await api.uploadPhoto(patientId, { ...form, dataUrl }); onAdded(result.item);
+      setFile(null); setForm({ title: '', relationshipOrPlace: '', year: '', memoryPromptQuestion: '', correctAnswer: '', audioPromptHint: '' });
+    } catch (uploadError) { setError(uploadError instanceof Error ? uploadError.message : 'Unable to upload photo.'); }
+    finally { setSaving(false); }
+  };
+  return <div className="grid gap-5 lg:grid-cols-[.85fr_1.15fr]"><form onSubmit={submit} className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><ImagePlus className="h-7 w-7 text-violet-700" /><div><h2 className="text-xl font-black">Add a personal memory</h2><p className="text-sm font-semibold text-stone-500">Use a clear family, place, or familiar-event photo.</p></div></div><label className="mt-5 block rounded-2xl border-2 border-dashed border-violet-300 bg-violet-50 p-4 text-center font-bold text-violet-950"><input required type="file" accept="image/jpeg,image/png,image/webp" className="block w-full text-sm" onChange={(event) => setFile(event.target.files?.[0] || null)} />{file && <span className="mt-2 block text-sm">Selected: {file.name}</span>}</label><div className="mt-4 grid gap-3 sm:grid-cols-2"><label><span className="mb-1 block font-bold">Photo title</span><input required value={form.title} onChange={(event) => update('title', event.target.value)} className="min-h-12 w-full rounded-xl border-2 border-stone-200 px-3" placeholder="Bihu at home" /></label><label><span className="mb-1 block font-bold">Person or place</span><input value={form.relationshipOrPlace} onChange={(event) => update('relationshipOrPlace', event.target.value)} className="min-h-12 w-full rounded-xl border-2 border-stone-200 px-3" placeholder="Daughter Anuradha" /></label><label><span className="mb-1 block font-bold">Question</span><input required value={form.memoryPromptQuestion} onChange={(event) => update('memoryPromptQuestion', event.target.value)} className="min-h-12 w-full rounded-xl border-2 border-stone-200 px-3" placeholder="Who is standing beside you?" /></label><label><span className="mb-1 block font-bold">Expected answer</span><input required value={form.correctAnswer} onChange={(event) => update('correctAnswer', event.target.value)} className="min-h-12 w-full rounded-xl border-2 border-stone-200 px-3" placeholder="Anuradha" /></label></div>{error && <p className="mt-3 rounded-xl bg-rose-50 p-3 font-bold text-rose-800">{error}</p>}<button disabled={saving} className="mt-5 min-h-12 w-full rounded-xl bg-violet-700 font-black text-white disabled:opacity-50">{saving ? 'Uploading…' : 'Add to Memory Lane'}</button></form><section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><Images className="h-7 w-7 text-violet-700" /><div><h2 className="text-xl font-black">Personal memory collection</h2><p className="text-sm font-semibold text-stone-500">Memory Lane rotates these without competitive scoring.</p></div></div><div className="mt-5 grid gap-3 sm:grid-cols-2">{photos.length ? photos.map((photo) => <article key={String(photo.id)} className="overflow-hidden rounded-2xl border border-stone-200 bg-stone-50"><img src={photo.imageUrl} alt={photo.title} className="aspect-video w-full object-cover" /><div className="p-3"><h3 className="font-black">{photo.title}</h3><p className="mt-1 text-sm font-semibold text-stone-600">{photo.memoryPromptQuestion}</p></div></article>) : <div className="rounded-2xl bg-violet-50 p-8 text-center sm:col-span-2"><Sparkles className="mx-auto h-10 w-10 text-violet-600" /><p className="mt-3 font-bold text-violet-950">No personal photos yet. The patient will see the built-in NER memory collection.</p></div>}</div></section></div>;
+};

@@ -15,8 +15,8 @@ interface GameShellProps {
   children: React.ReactNode;
 }
 
-export const GameShell: React.FC<GameShellProps> = ({ title, instruction, onExit, status, onHint, level, onLevelChange, children }) => {
-  const { judgeDemoEnabled, isReadingAloud, speechSupported, readAloud, stopReadAloud, t } = useApp();
+export const GameShell: React.FC<GameShellProps> = ({ title, instruction, onExit, status, onHint, children }) => {
+  const { isReadingAloud, speechSupported, readAloud, stopReadAloud, t } = useApp();
   const handleExit = () => { audioManager.playTap(); stopReadAloud(); onExit(); };
   const toggleReadAloud = () => {
     audioManager.playTap();
@@ -37,10 +37,6 @@ export const GameShell: React.FC<GameShellProps> = ({ title, instruction, onExit
             </div>
           </div>
           <p className="mx-auto mt-2 max-w-3xl text-center text-base font-semibold leading-snug text-stone-700">{instruction}</p>
-          {judgeDemoEnabled && level && onLevelChange && <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 rounded-xl border border-dashed border-brahma-300 bg-brahma-50 p-1.5" aria-label={t.judgeDemoTools}>
-            <span className="mr-1 text-sm font-bold text-brahma-900">{t.level}</span>
-            {([1, 2, 3, 4, 5] as DifficultyTier[]).map((candidate) => <button key={candidate} onClick={() => onLevelChange(candidate)} className={`tactile-btn h-[40px] min-w-[40px] rounded-lg border text-sm font-black ${level === candidate ? 'border-brahma-700 bg-brahma-600 text-white' : 'border-brahma-200 bg-white text-brahma-900'}`} aria-pressed={level === candidate}>{candidate}</button>)}
-          </div>}
         </div>
       </header>
       <main className="mx-auto max-w-5xl p-3 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:p-6">{children}</main>

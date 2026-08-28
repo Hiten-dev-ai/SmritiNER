@@ -45,8 +45,8 @@ export const ReminderManager: React.FC = () => {
     setShowAddForm(false);
   };
 
-  const handleDeleteReminder = async (id?: number) => {
-    if (!id) return;
+  const handleDeleteReminder = async (id?: number | string) => {
+    if (typeof id !== 'number') return;
     audioManager.playTap();
     await db.reminders.delete(id);
   };

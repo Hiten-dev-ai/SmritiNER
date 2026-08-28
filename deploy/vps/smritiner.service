@@ -1,0 +1,21 @@
+[Unit]
+Description=SmritiNER Node service
+After=network.target
+
+[Service]
+Type=simple
+User=Hiten
+Group=Hiten
+WorkingDirectory=/srv/apps/smritiner/current
+EnvironmentFile=/etc/smritiner.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/apps/smritiner/data /srv/apps/smritiner/uploads
+
+[Install]
+WantedBy=multi-user.target

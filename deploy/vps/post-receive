@@ -6,6 +6,8 @@ readonly SOURCE_DIR="${APP_ROOT}/source"
 readonly RELEASES_DIR="${APP_ROOT}/releases"
 readonly CURRENT_LINK="${APP_ROOT}/current"
 readonly REPOSITORY_DIR="/srv/git/SmritiNER.git"
+readonly DATA_DIR="${APP_ROOT}/data"
+readonly UPLOADS_DIR="${APP_ROOT}/uploads"
 
 while read -r old_revision new_revision reference_name; do
   if [[ "${reference_name}" != "refs/heads/main" ]]; then
@@ -17,7 +19,7 @@ while read -r old_revision new_revision reference_name; do
     exit 1
   fi
 
-  mkdir -p "${SOURCE_DIR}" "${RELEASES_DIR}"
+  mkdir -p "${SOURCE_DIR}" "${RELEASES_DIR}" "${DATA_DIR}" "${UPLOADS_DIR}"
   git --work-tree="${SOURCE_DIR}" --git-dir="${REPOSITORY_DIR}" checkout -f "${new_revision}"
 
   cd "${SOURCE_DIR}"
@@ -26,9 +28,34 @@ while read -r old_revision new_revision reference_name; do
 
   readonly RELEASE_DIR="${RELEASES_DIR}/${new_revision}"
   mkdir -p "${RELEASE_DIR}"
-  cp -a "${SOURCE_DIR}/dist/." "${RELEASE_DIR}/"
+  cp -a "${SOURCE_DIR}/dist" "${RELEASE_DIR}/dist"
+  cp -a "${SOURCE_DIR}/server" "${RELEASE_DIR}/server"
+  cp "${SOURCE_DIR}/server.js" "${SOURCE_DIR}/package.json" "${SOURCE_DIR}/package-lock.json" "${RELEASE_DIR}/"
+  cd "${RELEASE_DIR}"
+  npm ci --omit=dev --no-audit --no-fund
+
+  previous_release="$(readlink -f "${CURRENT_LINK}" || true)"
   ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}.next"
   mv -Tf "${CURRENT_LINK}.next" "${CURRENT_LINK}"
+
+  sudo systemctl restart smritiner.service
+  healthy=false
+  for attempt in {1..15}; do
+    if curl --fail --silent --show-error http://127.0.0.1:3050/api/health >/dev/null; then
+      healthy=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ "${healthy}" != "true" ]]; then
+    echo "Health check failed for ${new_revision}; restoring previous release." >&2
+    if [[ -n "${previous_release}" && -d "${previous_release}" ]]; then
+      ln -sfn "${previous_release}" "${CURRENT_LINK}.rollback"
+      mv -Tf "${CURRENT_LINK}.rollback" "${CURRENT_LINK}"
+      sudo systemctl restart smritiner.service
+    fi
+    exit 1
+  fi
 
   echo "SmritiNER deployed revision ${new_revision}"
 done

@@ -16,20 +16,20 @@ export const DueReminderAlert: React.FC<DueReminderAlertProps> = ({ reminder, on
   const today = getLocalDateKey();
 
   useEffect(() => {
-    if (!reminder.id || reminder.lastAlertedDate === today) return;
+    if (typeof reminder.id !== 'number' || reminder.lastAlertedDate === today) return;
     if (reminderSoundEnabled) audioManager.playTryAgain();
     void db.reminders.update(reminder.id, { lastAlertedDate: today });
   }, [reminder.id, reminder.lastAlertedDate, reminderSoundEnabled, today]);
 
   const markDone = async () => {
-    if (!reminder.id) return;
+    if (typeof reminder.id !== 'number') return;
     audioManager.playSuccess();
     const completedDates = reminder.completedDates.includes(today) ? reminder.completedDates : [...reminder.completedDates, today];
     await db.reminders.update(reminder.id, { completedDates, snoozedUntil: undefined, synced: false });
   };
 
   const snooze = async () => {
-    if (!reminder.id) return;
+    if (typeof reminder.id !== 'number') return;
     audioManager.playTap();
     await db.reminders.update(reminder.id, { snoozedUntil: new Date(Date.now() + 10 * 60 * 1000).toISOString(), synced: false });
   };

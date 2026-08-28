@@ -1,5 +1,42 @@
 export type AppMode = 'patient' | 'caregiver' | 'asha';
 
+export type UserRole = 'caregiver' | 'patient';
+
+export interface UserAccount {
+  id: string;
+  role: UserRole;
+  username: string;
+  email?: string;
+  displayName: string;
+}
+
+export interface AuthenticatedPatient {
+  id: string;
+  userId: string;
+  username: string;
+  name: string;
+  age: number;
+  dateOfBirth?: string;
+  gender: string;
+  preferredLanguage: string;
+  state: string;
+  district: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  clinicianCondition?: string;
+  careNotes?: string;
+  active: boolean;
+  accessRole: 'owner' | 'editor' | 'self';
+}
+
+export interface PatientCaregiverAccess {
+  id: string;
+  username: string;
+  displayName: string;
+  email?: string;
+  accessRole: 'owner' | 'editor';
+}
+
 export type ThemeMode = 'tea' | 'brahma' | 'contrast';
 export type FontSizeScale = 'normal' | 'large' | 'extralarge';
 
@@ -20,15 +57,48 @@ export interface PatientProfile {
 
 export type GameType = 
   | 'majuli_memory'
+  | 'tea_tray_recall'
+  | 'market_list_recall'
+  | 'missing_object'
+  | 'daily_steps'
+  | 'weave_pattern'
+  | 'memory_lane'
   | 'chai_harvest'
   | 'daily_sequence'
-  | 'weave_pattern'
   | 'reminiscence_album';
+
+export type CognitiveDomain = 'visual-memory' | 'working-memory' | 'recognition' | 'sequencing' | 'pattern-recognition' | 'reminiscence' | 'memory';
+
+export interface GameDifficultyProfile {
+  stage: number;
+  memoryLoad: number;
+  previewDurationMs: number;
+  optionCount: number;
+  roundCount: number;
+  allowReplay: boolean;
+}
+
+export interface GameDefinition {
+  id: GameType;
+  title: string;
+  subtitle: string;
+  domain: CognitiveDomain;
+  estimatedMinutes: number;
+}
+
+export interface GameRoundResult {
+  round: number;
+  correct: boolean;
+  responseMs: number;
+  mistakes: number;
+  hintsUsed: number;
+  contentVariantId: string;
+}
 
 export type DifficultyTier = 1 | 2 | 3 | 4 | 5;
 
 export interface GameSession {
-  id?: number;
+  id?: number | string;
   patientId: string;
   gameType: GameType;
   gameTitle: string;
@@ -42,6 +112,50 @@ export interface GameSession {
   avgReactionTimeMs: number;
   completedAt: string; // ISO string
   synced: boolean;
+  domain?: CognitiveDomain;
+  stage?: number;
+  memoryLoad?: number;
+  mistakes?: number;
+  hintsUsed?: number;
+  medianResponseMs?: number;
+  responseVariabilityMs?: number;
+  completionStatus?: 'completed' | 'abandoned';
+  contentVariantIds?: string[];
+  roundResults?: GameRoundResult[];
+  startedAt?: string;
+  clientEventId?: string;
+}
+
+export interface JourneyGameSession {
+  id?: string;
+  patientId: string;
+  gameType: GameType;
+  domain: CognitiveDomain;
+  stage: number;
+  accuracy: number;
+  durationSeconds: number;
+  memoryLoad: number;
+  mistakes: number;
+  hintsUsed: number;
+  medianResponseMs: number;
+  responseVariabilityMs: number;
+  completionStatus: 'completed' | 'abandoned';
+  contentVariantIds: string[];
+  roundResults: GameRoundResult[];
+  startedAt: string;
+  completedAt: string;
+  clientEventId: string;
+}
+
+export interface CaregiverObservation {
+  id: string;
+  patientId: string;
+  caregiverId: string;
+  caregiverName: string;
+  note: string;
+  tags: Array<'sleep' | 'illness' | 'mood' | 'medication' | 'routine' | 'other'>;
+  observedAt: string;
+  createdAt: string;
 }
 
 export interface CognitiveMetrics {
@@ -56,7 +170,7 @@ export interface CognitiveMetrics {
 }
 
 export interface ReminderItem {
-  id?: number;
+  id?: number | string;
   patientId: string;
   title: string;
   category: 'medicine' | 'hydration' | 'routine' | 'appointment' | 'prayer';
@@ -74,7 +188,7 @@ export interface ReminderItem {
 }
 
 export interface ReminiscencePhoto {
-  id?: number;
+  id?: number | string;
   patientId: string;
   imageUrl: string;
   title: string;
@@ -106,7 +220,7 @@ export interface AshaScreeningRecord {
 }
 
 export interface DailyHydrationLog {
-  id?: number;
+  id?: number | string;
   patientId: string;
   date: string; // YYYY-MM-DD
   glassesDrunk: number;

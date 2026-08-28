@@ -34,7 +34,7 @@ export const DailyRoutineView: React.FC<DailyRoutineViewProps> = ({ onBack }) =>
   };
 
   const toggleReminder = async (reminder: ReminderItem) => {
-    if (!reminder.id) return;
+    if (typeof reminder.id !== 'number') return;
     audioManager.playTap();
     const complete = reminder.completedDates.includes(todayStr);
     const completedDates = complete

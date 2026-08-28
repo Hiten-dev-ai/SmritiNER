@@ -1,0 +1,44 @@
+import type { AuthenticatedPatient, CaregiverObservation, JourneyGameSession, PatientCaregiverAccess, ReminiscencePhoto, UserAccount } from '../types';
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) { super(message); this.status = status; }
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(path, {
+    credentials: 'same-origin',
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({ error: 'Request failed.' }));
+    throw new ApiError(payload.error || 'Request failed.', response.status);
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
+
+export interface AuthPayload { user: UserAccount; patients: AuthenticatedPatient[]; expiresAt?: string }
+
+export const api = {
+  login: (identifier: string, password: string) => request<AuthPayload>('/api/auth/login', { method: 'POST', body: JSON.stringify({ identifier, password }) }),
+  registerCaregiver: (input: { displayName: string; username: string; email: string; password: string }) => request<AuthPayload>('/api/auth/register-caregiver', { method: 'POST', body: JSON.stringify(input) }),
+  me: () => request<AuthPayload>('/api/auth/me'),
+  logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  listPatients: () => request<{ patients: AuthenticatedPatient[] }>('/api/patients'),
+  createPatient: (input: Record<string, unknown>) => request<{ patient: AuthenticatedPatient }>('/api/patients', { method: 'POST', body: JSON.stringify(input) }),
+  updatePatient: (patientId: string, input: Record<string, unknown>) => request<{ patient: AuthenticatedPatient }>(`/api/patients/${patientId}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  deactivatePatient: (patientId: string) => request<void>(`/api/patients/${patientId}`, { method: 'DELETE' }),
+  listShares: (patientId: string) => request<{ shares: PatientCaregiverAccess[] }>(`/api/patients/${patientId}/shares`),
+  sharePatient: (patientId: string, identifier: string) => request<{ share: PatientCaregiverAccess }>(`/api/patients/${patientId}/shares`, { method: 'POST', body: JSON.stringify({ identifier }) }),
+  unsharePatient: (patientId: string, caregiverId: string) => request<void>(`/api/patients/${patientId}/shares/${caregiverId}`, { method: 'DELETE' }),
+  resetPatientPassword: (patientId: string, password: string) => request<void>(`/api/patients/${patientId}/reset-password`, { method: 'POST', body: JSON.stringify({ password }) }),
+  listSessions: (patientId: string) => request<{ sessions: JourneyGameSession[] }>(`/api/patients/${patientId}/game-sessions`),
+  addSession: (patientId: string, session: JourneyGameSession) => request<{ id: string }>(`/api/patients/${patientId}/game-sessions`, { method: 'POST', body: JSON.stringify(session) }),
+  listCollection: <T>(patientId: string, collection: 'reminders' | 'hydration' | 'photos') => request<{ items: T[] }>(`/api/patients/${patientId}/${collection}`),
+  saveCollectionItem: <T>(patientId: string, collection: 'reminders' | 'hydration' | 'photos', item: T) => request<{ item: T }>(`/api/patients/${patientId}/${collection}`, { method: 'POST', body: JSON.stringify(item) }),
+  uploadPhoto: (patientId: string, input: { dataUrl: string; title: string; relationshipOrPlace: string; year?: string; memoryPromptQuestion: string; correctAnswer: string; audioPromptHint?: string }) => request<{ item: ReminiscencePhoto }>(`/api/patients/${patientId}/photos/upload`, { method: 'POST', body: JSON.stringify(input) }),
+  listObservations: (patientId: string) => request<{ observations: CaregiverObservation[] }>(`/api/patients/${patientId}/observations`),
+  addObservation: (patientId: string, input: { note: string; tags: string[]; observedAt?: string }) => request<{ observation: CaregiverObservation }>(`/api/patients/${patientId}/observations`, { method: 'POST', body: JSON.stringify(input) }),
+};

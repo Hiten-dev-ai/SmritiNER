@@ -43,8 +43,8 @@ export const ReminiscenceManager: React.FC = () => {
     setShowAddForm(false);
   };
 
-  const handleDeletePhoto = async (id?: number) => {
-    if (!id) return;
+  const handleDeletePhoto = async (id?: number | string) => {
+    if (typeof id !== 'number') return;
     audioManager.playTap();
     await db.reminiscenceItems.delete(id);
   };

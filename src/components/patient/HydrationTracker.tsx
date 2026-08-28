@@ -27,7 +27,7 @@ export const HydrationTracker: React.FC = () => {
       audioManager.playSuccess();
     }
 
-    if (todayLog && todayLog.id) {
+    if (todayLog && typeof todayLog.id === 'number') {
       await db.hydrationLogs.update(todayLog.id, {
         glassesDrunk: clamped,
         synced: false,

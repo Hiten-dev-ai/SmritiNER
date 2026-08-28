@@ -6,6 +6,7 @@ interface TileSvgProps {
   theme: 'ner-heritage' | 'classic-ivory';
   className?: string;
   largePrint?: boolean;
+  simplerTiles?: boolean;
 }
 
 export const TileArtwork: React.FC<TileSvgProps> = ({
@@ -13,6 +14,7 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
   theme,
   className = 'w-full h-full',
   largePrint = false,
+  simplerTiles = false,
 }) => {
   const { symbolKey, number, suit, isFlower, isSeason } = identity;
 
@@ -307,14 +309,14 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
 
   return (
     <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg" fill="none">
-      {/* Corner suit / family badge */}
-      {number && (
+      {/* Corner suit / family badge (Only when largePrint is requested and not simplerTiles) */}
+      {!simplerTiles && largePrint && number && (
         <g>
-          <rect x="3" y="3" width={largePrint ? "22" : "18"} height={largePrint ? "22" : "18"} rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
+          <rect x="3" y="3" width="22" height="22" rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
           <text
-            x={largePrint ? "14" : "12"}
-            y={largePrint ? "20" : "17"}
-            fontSize={largePrint ? "18" : "14"}
+            x="14"
+            y="20"
+            fontSize="18"
             fontWeight="900"
             fill="#0f172a"
             textAnchor="middle"

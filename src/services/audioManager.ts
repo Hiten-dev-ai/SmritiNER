@@ -1,14 +1,28 @@
-// Web Audio API Synthesizer for Dementia-Friendly Audio Feedback
-// Provides soothing tactile chimes, soft card reveals, warm bell flourishes, and ambient soundscapes.
+// Web Audio API Synthesizer for Dementia-Friendly Audio Feedback & Tactile Mahjong
+// Provides soothing tactile ceramic clicks, wooden toks, warm bell flourishes, and calm ambient soundscapes.
 
 import type { AudioPreferences, SoundEvent } from '../types';
 
+export type MahjongSoundEvent =
+  | 'tile-pick'
+  | 'tile-blocked'
+  | 'pair-match'
+  | 'pair-mismatch'
+  | 'exposed-tile'
+  | 'hint'
+  | 'undo'
+  | 'shuffle'
+  | 'journey-complete'
+  | 'stage-unlocked'
+  | 'tap'
+  | 'reminder';
+
 class AudioManager {
   private ctx: AudioContext | null = null;
-  private ambientOscillators: { osc1?: OscillatorNode; osc2?: OscillatorNode; gainNode?: GainNode } = {};
-  private lastPlayTimes: Partial<Record<SoundEvent, number>> = {};
-  private isDucked: boolean = false;
+  private ambientSource: { noiseNode?: AudioNode; filterNode?: BiquadFilterNode; gainNode?: GainNode } = {};
+  private lastPlayTimes: Partial<Record<string, number>> = {};
   private pairMatchVariant = 0;
+  private tilePickVariant = 0;
 
   public preferences: AudioPreferences = {
     effectsEnabled: true,
@@ -82,138 +96,217 @@ class AudioManager {
     this.initCtx();
   }
 
+  // --- Convenience Wrappers ---
+  public playTap() {
+    this.play('tap');
+  }
+
+  public playSuccess() {
+    this.play('pair-match');
+  }
+
+  public playTryAgain() {
+    this.play('gentle-nudge');
+  }
+
+  public playVictory() {
+    this.play('journey-complete');
+  }
+
+  public duckAmbient(duck: boolean) {
+    if (!this.ambientSource.gainNode || !this.ctx) return;
+    const target = duck ? 0.005 : 0.02;
+    try {
+      this.ambientSource.gainNode.gain.linearRampToValueAtTime(target, this.ctx.currentTime + 0.3);
+    } catch {
+      // safe ignore
+    }
+  }
+
   private getVolumeMultiplier(): number {
     switch (this.preferences.effectsVolume) {
       case 'low':
-        return 0.4;
+        return 0.35;
       case 'high':
-        return 1.2;
+        return 1.0;
       case 'medium':
       default:
-        return 0.8;
+        return 0.65;
     }
   }
 
-  public play(event: SoundEvent) {
-    if (!this.preferences.effectsEnabled && event !== 'reminder') return;
-    if (event === 'reminder' && !this.preferences.reminderEnabled) return;
+  /**
+   * Play a sound event with rate-limiting and gentle frequency shaping.
+   */
+  public play(event: SoundEvent | MahjongSoundEvent) {
+    if (!this.preferences.effectsEnabled) return;
 
-    // Debounce rapid tap / clicks
+    // Rate-limit high frequency triggers
     const now = Date.now();
     const lastTime = this.lastPlayTimes[event] || 0;
-    if (event === 'tap' || event === 'tile-pick') {
-      if (now - lastTime < 50) return;
-    }
+    const cooldown = event === 'tile-pick' || event === 'tile-blocked' ? 70 : 150;
+    if (now - lastTime < cooldown) return;
     this.lastPlayTimes[event] = now;
 
+    const ctx = this.initCtx();
+    if (!ctx) return;
+
+    const vol = this.getVolumeMultiplier();
+
     try {
-      const ctx = this.initCtx();
-      if (!ctx) return;
-
-      const baseVol = this.getVolumeMultiplier();
-
       switch (event) {
         case 'tap':
-          this.synthesizeSoftTap(ctx, baseVol);
+          this.synthesizeSoftTap(ctx, vol);
           break;
         case 'tile-pick':
-          this.synthesizeTilePick(ctx, baseVol);
+          this.synthesizeTactileCeramicClick(ctx, vol);
+          break;
+        case 'tile-blocked':
+          this.synthesizeDampWoodenTok(ctx, vol);
           break;
         case 'tile-reveal':
-          this.synthesizeTileReveal(ctx, baseVol);
+        case 'exposed-tile':
+          this.synthesizeExposedTileShimmer(ctx, vol);
           break;
         case 'pair-match':
-          this.synthesizePairMatchChime(ctx, baseVol);
+          this.synthesizeTactilePairMatch(ctx, vol);
           break;
         case 'gentle-nudge':
-          this.synthesizeGentleNudge(ctx, baseVol);
+        case 'pair-mismatch':
+          this.synthesizeTactilePairMismatch(ctx, vol);
           break;
         case 'hint':
-          this.synthesizeHintBell(ctx, baseVol);
+          this.synthesizeTactileHintBell(ctx, vol);
+          break;
+        case 'undo':
+          this.synthesizeTactileUndo(ctx, vol);
+          break;
+        case 'shuffle':
+          this.synthesizeTileRustle(ctx, vol);
           break;
         case 'round-complete':
-          this.synthesizeRoundCompleteBloom(ctx, baseVol);
+          this.synthesizeRoundCompleteBloom(ctx, vol);
           break;
         case 'stage-unlocked':
-          this.synthesizeStageUnlockedPhrase(ctx, baseVol);
+          this.synthesizeStageUnlockedPhrase(ctx, vol);
           break;
         case 'journey-complete':
-          this.synthesizeJourneyCompleteCelebration(ctx, baseVol);
+          this.synthesizeJourneyCompleteCelebration(ctx, vol);
           break;
         case 'reminder':
-          this.synthesizeReminderAlert(ctx, baseVol);
+          if (this.preferences.reminderEnabled) {
+            this.synthesizeReminderAlert(ctx, vol);
+          }
           break;
       }
     } catch {
-      // Audio context synthesis fallback
+      // safe fallback if audio pipeline fails
     }
   }
 
-  // --- Web Audio Synthesizers ---
+  // -----------------------------------------------------------------
+  // TACTILE MAHJONG SOUND SYNTHESIZERS
+  // -----------------------------------------------------------------
 
-  private synthesizeSoftTap(ctx: AudioContext, vol: number) {
+  /**
+   * Short tactile ivory/ceramic click with subtle randomized pitch variation.
+   */
+  private synthesizeTactileCeramicClick(ctx: AudioContext, vol: number) {
+    const pitchPivots = [540, 580, 620];
+    const baseFreq = pitchPivots[this.tilePickVariant % pitchPivots.length];
+    this.tilePickVariant += 1;
+
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(420, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(180, ctx.currentTime + 0.06);
-
-    gain.gain.setValueAtTime(0.1 * vol, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.06);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start();
-    osc.stop(ctx.currentTime + 0.06);
-  }
-
-  private synthesizeTilePick(ctx: AudioContext, vol: number) {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
 
     osc.type = 'triangle';
-    osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-    osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.07);
+    osc.frequency.setValueAtTime(baseFreq, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.045);
 
-    gain.gain.setValueAtTime(0.12 * vol, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.07);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2400, ctx.currentTime);
 
-    osc.connect(gain);
+    gain.gain.setValueAtTime(0.16 * vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.045);
+
+    osc.connect(filter);
+    filter.connect(gain);
     gain.connect(ctx.destination);
 
     osc.start();
-    osc.stop(ctx.currentTime + 0.07);
+    osc.stop(ctx.currentTime + 0.046);
   }
 
-  private synthesizeTileReveal(ctx: AudioContext, vol: number) {
+  /**
+   * Damp wooden "tok" for blocked tiles (low, non-alarming 180Hz thump).
+   */
+  private synthesizeDampWoodenTok(ctx: AudioContext, vol: number) {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
 
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(329.63, ctx.currentTime); // E4
-    osc.frequency.exponentialRampToValueAtTime(659.25, ctx.currentTime + 0.12); // E5
+    osc.frequency.setValueAtTime(210, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(140, ctx.currentTime + 0.06);
 
-    gain.gain.setValueAtTime(0.01 * vol, ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(0.1 * vol, ctx.currentTime + 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.14);
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(260, ctx.currentTime);
+    filter.Q.value = 2.0;
 
-    osc.connect(gain);
+    gain.gain.setValueAtTime(0.12 * vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.065);
+
+    osc.connect(filter);
+    filter.connect(gain);
     gain.connect(ctx.destination);
 
     osc.start();
-    osc.stop(ctx.currentTime + 0.14);
+    osc.stop(ctx.currentTime + 0.066);
   }
 
-  private synthesizePairMatchChime(ctx: AudioContext, vol: number) {
-    // 3 lightly varied warm pentatonic bell chimes
-    const variants = [
-      [523.25, 659.25, 783.99], // C5, E5, G5
-      [587.33, 739.99, 880.00], // D5, F#5, A5
-      [659.25, 783.99, 1046.50], // E5, G5, C6
+  /**
+   * Two gentle ceramic taps for mismatches (no harsh buzzer).
+   */
+  private synthesizeTactilePairMismatch(ctx: AudioContext, vol: number) {
+    const taps = [
+      { freq: 360, time: 0 },
+      { freq: 300, time: 0.07 },
     ];
-    const notes = variants[this.pairMatchVariant % variants.length];
+
+    taps.forEach((t) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(t.freq, ctx.currentTime + t.time);
+      osc.frequency.exponentialRampToValueAtTime(160, ctx.currentTime + t.time + 0.04);
+
+      const st = ctx.currentTime + t.time;
+      gain.gain.setValueAtTime(0, st);
+      gain.gain.linearRampToValueAtTime(0.1 * vol, st + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, st + 0.05);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(st);
+      osc.stop(st + 0.051);
+    });
+  }
+
+  /**
+   * Ceramic double click followed by warm two-note harmonic chime (440Hz -> 660Hz).
+   */
+  private synthesizeTactilePairMatch(ctx: AudioContext, vol: number) {
+    // 1. Initial tactile click
+    this.synthesizeTactileCeramicClick(ctx, vol * 0.9);
+
+    // 2. Harmonic warm bell chime
+    const chordVariants = [
+      [440.0, 659.25], // A4, E5
+      [523.25, 783.99], // C5, G5
+      [587.33, 880.0], // D5, A5
+    ];
+    const notes = chordVariants[this.pairMatchVariant % chordVariants.length];
     this.pairMatchVariant += 1;
 
     notes.forEach((freq, idx) => {
@@ -221,64 +314,135 @@ class AudioManager {
       const gain = ctx.createGain();
 
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.07);
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + 0.04 + idx * 0.05);
 
-      const startTime = ctx.currentTime + idx * 0.07;
-      gain.gain.setValueAtTime(0, startTime);
-      gain.gain.linearRampToValueAtTime(0.12 * vol, startTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.45);
+      const st = ctx.currentTime + 0.04 + idx * 0.05;
+      gain.gain.setValueAtTime(0, st);
+      gain.gain.linearRampToValueAtTime(0.12 * vol, st + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, st + 0.38);
 
       osc.connect(gain);
       gain.connect(ctx.destination);
 
-      osc.start(startTime);
-      osc.stop(startTime + 0.46);
+      osc.start(st);
+      osc.stop(st + 0.39);
     });
   }
 
-  private synthesizeGentleNudge(ctx: AudioContext, vol: number) {
-    // Non-punitive, calm gentle tone (E4 -> D4)
+  /**
+   * Subtle airy chime shimmer for newly exposed tiles.
+   */
+  private synthesizeExposedTileShimmer(ctx: AudioContext, vol: number) {
+    if (this.preferences.effectsVolume === 'low') return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(329.63, ctx.currentTime);
-    osc.frequency.linearRampToValueAtTime(293.66, ctx.currentTime + 0.22);
+    osc.frequency.setValueAtTime(1046.5, ctx.currentTime); // C6
+    osc.frequency.exponentialRampToValueAtTime(1318.5, ctx.currentTime + 0.1); // E6
 
-    gain.gain.setValueAtTime(0.08 * vol, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+    gain.gain.setValueAtTime(0.005 * vol, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.04 * vol, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
 
     osc.connect(gain);
     gain.connect(ctx.destination);
 
     osc.start();
-    osc.stop(ctx.currentTime + 0.22);
+    osc.stop(ctx.currentTime + 0.12);
   }
 
-  private synthesizeHintBell(ctx: AudioContext, vol: number) {
-    const freqs = [880.00, 1318.51]; // A5, E6
-    freqs.forEach((freq, idx) => {
+  /**
+   * Rounded marimba / bell tone at comfortable mid frequency (520Hz).
+   */
+  private synthesizeTactileHintBell(ctx: AudioContext, vol: number) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+    osc.frequency.exponentialRampToValueAtTime(659.25, ctx.currentTime + 0.15); // E5
+
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.14 * vol, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.46);
+  }
+
+  /**
+   * Reversed soft click for Undo.
+   */
+  private synthesizeTactileUndo(ctx: AudioContext, vol: number) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(320, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(560, ctx.currentTime + 0.08);
+
+    gain.gain.setValueAtTime(0.01 * vol, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.08 * vol, ctx.currentTime + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.09);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.09);
+  }
+
+  /**
+   * 600ms multi-impulse tile rustle simulation for Shuffle.
+   */
+  private synthesizeTileRustle(ctx: AudioContext, vol: number) {
+    const offsets = [0, 0.08, 0.16, 0.25, 0.35, 0.46];
+    offsets.forEach((offset, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
+      const freq = 380 + (idx % 3) * 90;
 
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.05);
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + offset);
+      osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + offset + 0.04);
 
-      const startTime = ctx.currentTime + idx * 0.05;
-      gain.gain.setValueAtTime(0, startTime);
-      gain.gain.linearRampToValueAtTime(0.1 * vol, startTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.5);
+      const st = ctx.currentTime + offset;
+      gain.gain.setValueAtTime(0, st);
+      gain.gain.linearRampToValueAtTime(0.08 * vol, st + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, st + 0.05);
 
       osc.connect(gain);
       gain.connect(ctx.destination);
 
-      osc.start(startTime);
-      osc.stop(startTime + 0.51);
+      osc.start(st);
+      osc.stop(st + 0.052);
     });
   }
 
+  private synthesizeSoftTap(ctx: AudioContext, vol: number) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(420, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(180, ctx.currentTime + 0.05);
+
+    gain.gain.setValueAtTime(0.09 * vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.051);
+  }
+
   private synthesizeRoundCompleteBloom(ctx: AudioContext, vol: number) {
-    const notes = [392.00, 523.25, 659.25, 783.99]; // G4, C5, E5, G5
+    const notes = [392.0, 523.25, 659.25, 783.99]; // G4, C5, E5, G5
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -289,22 +453,22 @@ class AudioManager {
       const startTime = ctx.currentTime + idx * 0.09;
       gain.gain.setValueAtTime(0, startTime);
       gain.gain.linearRampToValueAtTime(0.12 * vol, startTime + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.6);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.55);
 
       osc.connect(gain);
       gain.connect(ctx.destination);
 
       osc.start(startTime);
-      osc.stop(startTime + 0.62);
+      osc.stop(startTime + 0.56);
     });
   }
 
   private synthesizeStageUnlockedPhrase(ctx: AudioContext, vol: number) {
     const phrase = [
-      { freq: 440.00, time: 0 },
-      { freq: 554.37, time: 0.12 },
-      { freq: 659.25, time: 0.24 },
-      { freq: 880.00, time: 0.38 },
+      { freq: 440.0, time: 0 },
+      { freq: 554.37, time: 0.11 },
+      { freq: 659.25, time: 0.22 },
+      { freq: 880.0, time: 0.35 },
     ];
     phrase.forEach((item) => {
       const osc = ctx.createOscillator();
@@ -316,21 +480,21 @@ class AudioManager {
       const startTime = ctx.currentTime + item.time;
       gain.gain.setValueAtTime(0, startTime);
       gain.gain.linearRampToValueAtTime(0.14 * vol, startTime + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.55);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.5);
 
       osc.connect(gain);
       gain.connect(ctx.destination);
 
       osc.start(startTime);
-      osc.stop(startTime + 0.56);
+      osc.stop(startTime + 0.51);
     });
   }
 
   private synthesizeJourneyCompleteCelebration(ctx: AudioContext, vol: number) {
     const chords = [
-      { freqs: [261.63, 329.63, 392.00], time: 0 },
-      { freqs: [329.63, 415.30, 493.88], time: 0.22 },
-      { freqs: [523.25, 659.25, 783.99, 1046.50], time: 0.45 },
+      { freqs: [261.63, 329.63, 392.0], time: 0 }, // C maj
+      { freqs: [329.63, 392.0, 523.25], time: 0.2 }, // E min/C
+      { freqs: [523.25, 659.25, 783.99, 1046.5], time: 0.42 }, // High C maj
     ];
     chords.forEach((chord) => {
       chord.freqs.forEach((freq) => {
@@ -342,20 +506,20 @@ class AudioManager {
 
         const startTime = ctx.currentTime + chord.time;
         gain.gain.setValueAtTime(0, startTime);
-        gain.gain.linearRampToValueAtTime(0.08 * vol, startTime + 0.04);
-        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.7);
+        gain.gain.linearRampToValueAtTime(0.07 * vol, startTime + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.65);
 
         osc.connect(gain);
         gain.connect(ctx.destination);
 
         osc.start(startTime);
-        osc.stop(startTime + 0.72);
+        osc.stop(startTime + 0.66);
       });
     });
   }
 
   private synthesizeReminderAlert(ctx: AudioContext, vol: number) {
-    const notes = [587.33, 880.00, 587.33, 880.00];
+    const notes = [587.33, 880.0, 587.33, 880.0];
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -376,10 +540,12 @@ class AudioManager {
     });
   }
 
-  // --- Ambient Brahmaputra Drone Soundscape ---
+  // -----------------------------------------------------------------
+  // PROCEDURAL CALM AMBIENCE (Soft filtered water / breeze texture)
+  // -----------------------------------------------------------------
 
   public get isAmbientPlaying(): boolean {
-    return Boolean(this.ambientOscillators.osc1);
+    return Boolean(this.ambientSource.noiseNode);
   }
 
   public toggleAmbientSoundscape(): boolean {
@@ -398,78 +564,72 @@ class AudioManager {
 
   public startAmbient() {
     const ctx = this.initCtx();
-    if (!ctx) return;
-    this.stopAmbient();
+    if (!ctx || this.isAmbientPlaying) return;
 
     try {
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gainNode = ctx.createGain();
+      // 2-second white noise buffer filtered to soothing stream/breeze texture
+      const bufferSize = ctx.sampleRate * 2;
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      let lastOut = 0.0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        // Pink noise integrator filter
+        output[i] = (lastOut + 0.02 * white) / 1.02;
+        lastOut = output[i];
+        output[i] *= 0.8;
+      }
 
-      osc1.type = 'sine';
-      osc1.frequency.setValueAtTime(130.81, ctx.currentTime); // C3 fundamental drone
+      const whiteNoise = ctx.createBufferSource();
+      whiteNoise.buffer = noiseBuffer;
+      whiteNoise.loop = true;
 
-      osc2.type = 'triangle';
-      osc2.frequency.setValueAtTime(196.00, ctx.currentTime); // G3 harmonic
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(320, ctx.currentTime);
 
-      const targetVol = this.isDucked ? 0.008 : 0.035;
-      gainNode.gain.setValueAtTime(targetVol, ctx.currentTime);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.02, ctx.currentTime + 1.2); // Smooth 1.2s fade-in
 
-      osc1.connect(gainNode);
-      osc2.connect(gainNode);
-      gainNode.connect(ctx.destination);
+      whiteNoise.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
 
-      osc1.start();
-      osc2.start();
-
-      this.ambientOscillators = { osc1, osc2, gainNode };
+      whiteNoise.start();
+      this.ambientSource = { noiseNode: whiteNoise, filterNode: filter, gainNode: gain };
     } catch {
-      this.ambientOscillators = {};
+      // ambient fallback
     }
   }
 
   public stopAmbient() {
-    if (this.ambientOscillators.osc1) {
-      try {
-        this.ambientOscillators.osc1.stop();
-        this.ambientOscillators.osc2?.stop();
-      } catch {
-        // safe ignore
+    if (!this.ambientSource.noiseNode) return;
+    try {
+      const { noiseNode, gainNode } = this.ambientSource;
+      if (this.ctx && gainNode) {
+        gainNode.gain.linearRampToValueAtTime(0.0001, this.ctx.currentTime + 0.8);
       }
+      setTimeout(() => {
+        try {
+          (noiseNode as AudioBufferSourceNode)?.stop();
+          (noiseNode as AudioBufferSourceNode)?.disconnect();
+        } catch {
+          // safe ignore
+        }
+        this.ambientSource = {};
+      }, 850);
+    } catch {
+      this.ambientSource = {};
     }
-    this.ambientOscillators = {};
   }
 
-  public duckAmbient(duck: boolean) {
-    this.isDucked = duck;
-    if (this.ambientOscillators.gainNode && this.ctx) {
-      const target = duck ? 0.006 : 0.035;
-      this.ambientOscillators.gainNode.gain.linearRampToValueAtTime(
-        target,
-        this.ctx.currentTime + 0.2
-      );
-    }
-  }
-
-  public stopAll() {
-    this.stopAmbient();
-  }
-
-  // --- Legacy helpers ---
-  public playTap() {
-    this.play('tap');
-  }
-
-  public playSuccess() {
-    this.play('pair-match');
-  }
-
-  public playTryAgain() {
-    this.play('gentle-nudge');
-  }
-
-  public playVictory() {
-    this.play('journey-complete');
+  /**
+   * Preview a tactile sound for the settings UI.
+   */
+  public previewSound() {
+    this.play('tile-pick');
+    setTimeout(() => this.play('pair-match'), 220);
   }
 }
 

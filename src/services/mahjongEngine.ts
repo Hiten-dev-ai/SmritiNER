@@ -82,6 +82,7 @@ export interface MahjongViewPreferences {
   showFreeHighlights: boolean;
   showLayerLabels: boolean;
   showBoardMap: boolean;
+  simplerTiles: boolean;
   largePrint: boolean;
 }
 

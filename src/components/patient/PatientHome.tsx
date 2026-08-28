@@ -8,6 +8,7 @@ import {
   Leaf,
   PhoneCall,
   Pill,
+  Play,
   Sparkles,
   Volume2,
 } from 'lucide-react';
@@ -19,6 +20,7 @@ import {
   localizedGame,
   type JourneyGameType,
 } from '../../services/journeyEngine';
+import { getLayoutForStage, type MahjongSavedGame } from '../../services/mahjongEngine';
 import type { JourneyGameSession, ReminiscencePhoto, ReminderItem } from '../../types';
 import { GameSelection } from '../games/GameSelection';
 import { JourneyGame } from '../games/JourneyGame';
@@ -43,6 +45,7 @@ const patientCopy = {
     support: 'Engagement support only—not a medical diagnosis.',
     complete: 'Complete',
     home: 'Home',
+    continueMahjong: 'Continue Saved Mahjong Board',
   },
   Hindi: {
     journey: 'अपनी स्मृति यात्रा जारी रखें',
@@ -61,6 +64,7 @@ const patientCopy = {
     support: 'केवल सहभागिता सहायता—चिकित्सीय निदान नहीं।',
     complete: 'पूरा',
     home: 'मुख्य पृष्ठ',
+    continueMahjong: 'सहेजा गया माहजोंग बोर्ड जारी रखें',
   },
   Assamese: {
     journey: 'আপোনাৰ স্মৃতি পথ আগবঢ়াওক',
@@ -79,6 +83,7 @@ const patientCopy = {
     support: 'কেৱল অংশগ্ৰহণ সহায়—চিকিৎসা নিৰ্ণয় নহয়।',
     complete: 'সম্পূৰ্ণ',
     home: 'মূল পৃষ্ঠা',
+    continueMahjong: 'সংৰক্ষিত মাহজং খেল আগবঢ়াওক',
   },
 };
 
@@ -102,6 +107,7 @@ export const PatientHome: React.FC = () => {
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
   const [photos, setPhotos] = useState<ReminiscencePhoto[]>([]);
   const [hydration, setHydration] = useState(0);
+  const [mahjongSave, setMahjongSave] = useState<MahjongSavedGame | null>(null);
   const [loading, setLoading] = useState(true);
   const today = getLocalDateKey();
 
@@ -119,13 +125,29 @@ export const PatientHome: React.FC = () => {
       api
         .listCollection<ReminiscencePhoto>(currentPatient.id, 'photos')
         .then((result) => result.items),
+      api.getMahjongSave(currentPatient.id).then((result) => result.save).catch(() => null),
     ])
-      .then(([nextSessions, nextReminders, logs, nextPhotos]) => {
+      .then(([nextSessions, nextReminders, logs, nextPhotos, savedMahjong]) => {
         if (!active) return;
         setSessions(nextSessions);
         setReminders(nextReminders);
         setPhotos(nextPhotos);
         setHydration(logs.find((entry) => entry.date === today)?.glassesDrunk || 0);
+
+        if (savedMahjong && savedMahjong.tiles?.filter((t) => t.active).length > 0) {
+          setMahjongSave(savedMahjong);
+        } else {
+          try {
+            const local = JSON.parse(
+              localStorage.getItem(`smriti-mahjong-save-${currentPatient.id}`) || 'null'
+            );
+            if (local && local.tiles?.filter((t: { active: boolean }) => t.active).length > 0) {
+              setMahjongSave(local);
+            }
+          } catch {
+            setMahjongSave(null);
+          }
+        }
       })
       .catch(() => {
         try {
@@ -178,6 +200,13 @@ export const PatientHome: React.FC = () => {
 
   const completeSession = async (session: JourneyGameSession) => {
     setSessions((values) => [...values, session]);
+    if (session.gameType === 'mahjong_memory') {
+      setMahjongSave(null);
+      if (currentPatient) {
+        localStorage.removeItem(`smriti-mahjong-save-${currentPatient.id}`);
+        await api.deleteMahjongSave(currentPatient.id).catch(() => undefined);
+      }
+    }
     try {
       const response = await api.addSession(currentPatient.id, session);
       if (response?.progress) {
@@ -270,6 +299,9 @@ export const PatientHome: React.FC = () => {
       .catch(() => undefined);
   };
 
+  const mahjongTilesRemaining = mahjongSave?.tiles?.filter((t) => t.active).length || 0;
+  const mahjongSavedLayout = mahjongSave ? getLayoutForStage(mahjongSave.stage) : null;
+
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-7">
       {(isOfflineSession || !isOnline) && (
@@ -278,6 +310,42 @@ export const PatientHome: React.FC = () => {
           reconnects.
         </div>
       )}
+
+      {/* CONTINUATION HERO CARD FOR SAVED MAHJONG */}
+      {mahjongSave && mahjongTilesRemaining > 0 && mahjongSavedLayout && (
+        <section className="relative overflow-hidden rounded-[2rem] border-2 border-teal-300 bg-gradient-to-br from-teal-950 via-teal-900 to-emerald-800 p-5 text-white shadow-xl sm:p-7 animate-fadeIn">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-4">
+              <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-teal-100 text-3xl font-black text-teal-950 shadow-md">
+                🀄
+              </span>
+              <div>
+                <span className="inline-block rounded-full bg-teal-800/80 px-3 py-0.5 text-xs font-black uppercase tracking-wider text-teal-200">
+                  Game in Progress · Stage {mahjongSave.stage}
+                </span>
+                <h2 className="mt-1 text-2xl font-black">
+                  {mahjongSavedLayout.name[selectedLanguage] || mahjongSavedLayout.name.English}
+                </h2>
+                <p className="text-sm font-semibold text-teal-100">
+                  {mahjongTilesRemaining} tiles remaining · {mahjongSave.pairsCleared} pairs cleared
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => launch('mahjong_memory')}
+                className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-assamGold-300 px-6 text-lg font-black text-teal-950 shadow-lg hover:bg-amber-400 transition"
+              >
+                <Play className="h-5 w-5" />
+                Continue Board
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* STANDARD HERO SECTION */}
       <section className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-tea-950 via-tea-800 to-emerald-700 p-5 text-white shadow-xl sm:p-8">
         <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-assamGold-300/20 blur-2xl" />
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">

@@ -42,4 +42,7 @@ export const api = {
   uploadPhoto: (patientId: string, input: { dataUrl: string; title: string; relationshipOrPlace: string; year?: string; memoryPromptQuestion: string; correctAnswer: string; audioPromptHint?: string }) => request<{ item: ReminiscencePhoto }>(`/api/patients/${patientId}/photos/upload`, { method: 'POST', body: JSON.stringify(input) }),
   listObservations: (patientId: string) => request<{ observations: CaregiverObservation[] }>(`/api/patients/${patientId}/observations`),
   addObservation: (patientId: string, input: { note: string; tags: string[]; observedAt?: string }) => request<{ observation: CaregiverObservation }>(`/api/patients/${patientId}/observations`, { method: 'POST', body: JSON.stringify(input) }),
+  getMahjongSave: (patientId: string) => request<{ save: import('./mahjongEngine').MahjongSavedGame | null }>(`/api/patients/${patientId}/mahjong-save`),
+  saveMahjongSave: (patientId: string, save: import('./mahjongEngine').MahjongSavedGame) => request<{ save: import('./mahjongEngine').MahjongSavedGame }>(`/api/patients/${patientId}/mahjong-save`, { method: 'PUT', body: JSON.stringify(save) }),
+  deleteMahjongSave: (patientId: string) => request<{ success: boolean }>(`/api/patients/${patientId}/mahjong-save`, { method: 'DELETE' }),
 };

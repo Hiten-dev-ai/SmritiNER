@@ -8,6 +8,7 @@ import {
   deleteSession, getPatientAccess, getUserBySession, listAccessiblePatients, listCollection,
   listGameProgress, listGameSessions, listObservations, listShares, registerCaregiver, resetPatientPassword,
   sharePatient, unsharePatient, updatePatient, upsertCollectionItem,
+  getMahjongSave, saveMahjongSave, deleteMahjongSave,
 } from './server/store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -168,6 +169,15 @@ app.post('/api/patients/:patientId/reminders', authRequired, withPatientAccess()
 });
 app.post('/api/patients/:patientId/hydration', authRequired, withPatientAccess(), (req, res) => {
   try { res.status(201).json({ item: upsertCollectionItem(req.params.patientId, 'hydration', req.body) }); } catch (error) { handleError(res, error); }
+});
+app.get('/api/patients/:patientId/mahjong-save', authRequired, withPatientAccess(), (req, res) => {
+  try { res.json({ save: getMahjongSave(req.params.patientId) }); } catch (error) { handleError(res, error); }
+});
+app.put('/api/patients/:patientId/mahjong-save', authRequired, withPatientAccess(), (req, res) => {
+  try { res.json({ save: saveMahjongSave(req.params.patientId, req.body) }); } catch (error) { handleError(res, error); }
+});
+app.delete('/api/patients/:patientId/mahjong-save', authRequired, withPatientAccess(), (req, res) => {
+  try { res.json(deleteMahjongSave(req.params.patientId)); } catch (error) { handleError(res, error); }
 });
 app.post('/api/patients/:patientId/photos', authRequired, caregiverRequired, withPatientAccess(), (req, res) => {
   try { res.status(201).json({ item: upsertCollectionItem(req.params.patientId, 'photos', req.body) }); } catch (error) { handleError(res, error); }

@@ -162,4 +162,68 @@ describe.sequential('server-backed multi-user access', () => {
     expect(sessionBody.progress).toBeDefined();
     expect(sessionBody.decision).toBeDefined();
   });
+
+  it('saves, retrieves, and clears active Mahjong Solitaire games', async () => {
+    const patient = await login('bhaben', '1234');
+
+    // 1. Initially no save
+    const initialGet = await fetch(`${origin}/api/patients/pat-ner-001/mahjong-save`, {
+      headers: { Cookie: patient.cookie },
+    });
+    expect(initialGet.status).toBe(200);
+    const initialBody = await initialGet.json();
+    expect(initialBody.save).toBeNull();
+
+    // 2. Save active board state
+    const savePayload = {
+      stage: 3,
+      layoutId: 'stage_3_bamboo_bridge',
+      dealSeed: 'deal_12345',
+      themeId: 'ner-heritage',
+      tableFelt: 'tea-garden',
+      tiles: [{ instanceId: 't1', identityId: 'suit1_1', positionId: 'p1', x: 0, y: 0, z: 0, active: true }],
+      moveHistory: [],
+      pairsCleared: 4,
+      activeDurationMs: 45000,
+      hintCount: 1,
+      mismatchCount: 0,
+      blockedTapCount: 2,
+      shuffleCount: 0,
+      startedAt: new Date().toISOString(),
+    };
+
+    const putRes = await fetch(`${origin}/api/patients/pat-ner-001/mahjong-save`, {
+      method: 'PUT',
+      headers: { Cookie: patient.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify(savePayload),
+    });
+    expect(putRes.status).toBe(200);
+    const putBody = await putRes.json();
+    expect(putBody.save).toBeDefined();
+    expect(putBody.save.stage).toBe(3);
+    expect(putBody.save.layoutId).toBe('stage_3_bamboo_bridge');
+    expect(putBody.save.pairsCleared).toBe(4);
+
+    // 3. Retrieve saved board state
+    const getRes = await fetch(`${origin}/api/patients/pat-ner-001/mahjong-save`, {
+      headers: { Cookie: patient.cookie },
+    });
+    expect(getRes.status).toBe(200);
+    const getBody = await getRes.json();
+    expect(getBody.save.stage).toBe(3);
+    expect(getBody.save.pairsCleared).toBe(4);
+
+    // 4. Delete saved board state upon completion
+    const delRes = await fetch(`${origin}/api/patients/pat-ner-001/mahjong-save`, {
+      method: 'DELETE',
+      headers: { Cookie: patient.cookie },
+    });
+    expect(delRes.status).toBe(200);
+
+    // 5. Verify save is gone
+    const finalGet = await fetch(`${origin}/api/patients/pat-ner-001/mahjong-save`, {
+      headers: { Cookie: patient.cookie },
+    });
+    expect((await finalGet.json()).save).toBeNull();
+  });
 });

@@ -29,7 +29,7 @@ import {
   type JourneyItem,
 } from '../../services/journeyEngine';
 import { audioManager } from '../../services/audioManager';
-import { MahjongMemoryGame } from './MahjongMemoryGame';
+import { MahjongSolitaireGame } from './MahjongSolitaireGame';
 import { StagePickerModal } from './StagePickerModal';
 
 interface JourneyGameProps {
@@ -151,6 +151,16 @@ export const JourneyGame: React.FC<JourneyGameProps> = ({
   const currentProgress = gameProgress[gameType];
   const unlockedStage = currentProgress?.unlockedStage || 1;
   const recommendedStage = currentProgress?.recommendedStage || 1;
+
+  if (gameType === 'mahjong_memory') {
+    return (
+      <MahjongSolitaireGame
+        initialStage={activeStage}
+        onBack={onBack}
+        onComplete={onComplete}
+      />
+    );
+  }
 
   const profile = profileForStage(gameType, activeStage);
   const [phase, setPhase] = useState<Phase>('ready');
@@ -324,27 +334,23 @@ export const JourneyGame: React.FC<JourneyGameProps> = ({
 
   const prepareRound = (index: number) => {
     if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
-    if (gameType !== 'mahjong_memory') {
-      const data = makeRound(index);
-      setRoundData(data);
-      setMistakes(0);
-      setHints(0);
-      setHintText('');
-      setFlipped([]);
-      setMatched([]);
-      setMatchStreak(0);
-      setSequenceAnswer([]);
-      setSelected([]);
-      roundStartedRef.current = Date.now();
-      if (['tea_tray_recall', 'market_list_recall', 'missing_object'].includes(gameType)) {
-        setPhase('preview');
-        previewTimerRef.current = window.setTimeout(
-          () => setPhase('answer'),
-          profile.previewDurationMs
-        );
-      } else {
-        setPhase('answer');
-      }
+    const data = makeRound(index);
+    setRoundData(data);
+    setMistakes(0);
+    setHints(0);
+    setHintText('');
+    setFlipped([]);
+    setMatched([]);
+    setMatchStreak(0);
+    setSequenceAnswer([]);
+    setSelected([]);
+    roundStartedRef.current = Date.now();
+    if (['tea_tray_recall', 'market_list_recall', 'missing_object'].includes(gameType)) {
+      setPhase('preview');
+      previewTimerRef.current = window.setTimeout(
+        () => setPhase('answer'),
+        profile.previewDurationMs
+      );
     } else {
       setPhase('answer');
     }
@@ -711,17 +717,9 @@ export const JourneyGame: React.FC<JourneyGameProps> = ({
             {/* ANSWER PHASE */}
             {phase === 'answer' && (
               <section className="rounded-[2rem] border-2 border-tea-200 bg-white p-4 shadow-lg sm:p-6 animate-fadeIn">
-                {gameType === 'mahjong_memory' ? (
-                  <MahjongMemoryGame
-                    stage={activeStage}
-                    language={language}
-                    recentVariantIds={recentVariantIds}
-                    onRoundComplete={handleRoundResult}
-                  />
-                ) : (
-                  roundData && (
-                    <>
-                      <div className="mb-4 flex items-center justify-between gap-3">
+                {roundData && (
+                  <>
+                    <div className="mb-4 flex items-center justify-between gap-3">
                         <div>
                           <h2 className="text-2xl font-black text-tea-950">
                             {gameType === 'daily_steps'
@@ -1014,7 +1012,7 @@ export const JourneyGame: React.FC<JourneyGameProps> = ({
                       )}
                     </>
                   )
-                )}
+                }
               </section>
             )}
 

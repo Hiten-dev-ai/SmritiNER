@@ -121,6 +121,22 @@ database.exec(`
     updated_at TEXT NOT NULL,
     PRIMARY KEY (patient_id, game_type)
   );
+  CREATE TABLE IF NOT EXISTS patient_mahjong_saves (
+    patient_id TEXT PRIMARY KEY REFERENCES patients(id) ON DELETE CASCADE,
+    stage INTEGER NOT NULL,
+    layout_id TEXT NOT NULL,
+    deal_seed TEXT NOT NULL,
+    theme_id TEXT NOT NULL,
+    table_felt TEXT NOT NULL DEFAULT 'sand',
+    tiles_json TEXT NOT NULL,
+    move_history_json TEXT NOT NULL,
+    metrics_json TEXT NOT NULL,
+    pairs_cleared INTEGER NOT NULL DEFAULT 0,
+    active_duration_ms INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    last_saved_at TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1
+  );
 `);
 
 const nowIso = () => new Date().toISOString();
@@ -668,6 +684,85 @@ export function addObservation(patientId, caregiverId, input) {
   database.prepare(`INSERT INTO caregiver_observations (id, patient_id, caregiver_id, note, tags_json, observed_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, patientId, caregiverId, input.note.trim(), JSON.stringify(input.tags || []), input.observedAt || nowIso(), nowIso());
   return listObservations(patientId).find((item) => item.id === id);
+}
+
+export function getMahjongSave(patientId) {
+  const row = database.prepare('SELECT * FROM patient_mahjong_saves WHERE patient_id = ?').get(patientId);
+  if (!row) return null;
+  const metrics = json(row.metrics_json, {});
+  return {
+    patientId: row.patient_id,
+    stage: row.stage,
+    layoutId: row.layout_id,
+    dealSeed: row.deal_seed,
+    themeId: row.theme_id,
+    tableFelt: row.table_felt,
+    tiles: json(row.tiles_json, []),
+    moveHistory: json(row.move_history_json, []),
+    pairsCleared: row.pairs_cleared,
+    activeDurationMs: row.active_duration_ms,
+    hintCount: metrics.hintCount || 0,
+    mismatchCount: metrics.mismatchCount || 0,
+    blockedTapCount: metrics.blockedTapCount || 0,
+    shuffleCount: metrics.shuffleCount || 0,
+    startedAt: row.started_at,
+    lastSavedAt: row.last_saved_at,
+    revision: row.revision,
+  };
+}
+
+export function saveMahjongSave(patientId, saveObj) {
+  const metrics = {
+    hintCount: saveObj.hintCount || 0,
+    mismatchCount: saveObj.mismatchCount || 0,
+    blockedTapCount: saveObj.blockedTapCount || 0,
+    shuffleCount: saveObj.shuffleCount || 0,
+  };
+  const nextRev = (saveObj.revision || 0) + 1;
+  const now = nowIso();
+
+  database.prepare(`
+    INSERT INTO patient_mahjong_saves (
+      patient_id, stage, layout_id, deal_seed, theme_id, table_felt,
+      tiles_json, move_history_json, metrics_json, pairs_cleared,
+      active_duration_ms, started_at, last_saved_at, revision
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(patient_id) DO UPDATE SET
+      stage = excluded.stage,
+      layout_id = excluded.layout_id,
+      deal_seed = excluded.deal_seed,
+      theme_id = excluded.theme_id,
+      table_felt = excluded.table_felt,
+      tiles_json = excluded.tiles_json,
+      move_history_json = excluded.move_history_json,
+      metrics_json = excluded.metrics_json,
+      pairs_cleared = excluded.pairs_cleared,
+      active_duration_ms = excluded.active_duration_ms,
+      last_saved_at = excluded.last_saved_at,
+      revision = excluded.revision
+  `).run(
+    patientId,
+    saveObj.stage || 1,
+    saveObj.layoutId || 'stage_1_tea_tray',
+    saveObj.dealSeed || `${Date.now()}`,
+    saveObj.themeId || 'ner-heritage',
+    saveObj.tableFelt || 'sand',
+    JSON.stringify(saveObj.tiles || []),
+    JSON.stringify(saveObj.moveHistory || []),
+    JSON.stringify(metrics),
+    saveObj.pairsCleared || 0,
+    saveObj.activeDurationMs || 0,
+    saveObj.startedAt || now,
+    now,
+    nextRev
+  );
+
+  return getMahjongSave(patientId);
+}
+
+export function deleteMahjongSave(patientId) {
+  database.prepare('DELETE FROM patient_mahjong_saves WHERE patient_id = ?').run(patientId);
+  return { success: true };
 }
 
 seedDemoData();

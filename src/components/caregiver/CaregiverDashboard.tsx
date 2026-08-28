@@ -29,8 +29,10 @@ import { CognitiveCharts } from './CognitiveCharts';
 import { MemoryManager } from './MemoryManager';
 import { ObservationsPanel } from './ObservationsPanel';
 import { PatientFormModal } from './PatientFormModal';
+import { CaregiverChatPanel } from './CaregiverChatPanel';
+import { MessageCircle } from 'lucide-react';
 
-type Tab = 'overview' | 'alerts' | 'care' | 'memories' | 'observations' | 'access';
+type Tab = 'overview' | 'alerts' | 'messages' | 'care' | 'memories' | 'observations' | 'access';
 
 export const CaregiverDashboard: React.FC = () => {
   const {
@@ -200,6 +202,7 @@ export const CaregiverDashboard: React.FC = () => {
   const tabs: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
     { id: 'overview', label: 'Engagement overview', icon: Activity },
     { id: 'alerts', label: `Alerts (${alerts.filter((a) => a.status === 'due' || a.status === 'overdue').length})`, icon: BellRing },
+    { id: 'messages', label: 'Messages & Friends', icon: MessageCircle },
     { id: 'care', label: 'Care plan', icon: Pill },
     { id: 'memories', label: 'Memory Lane', icon: Images },
     { id: 'observations', label: 'Observations', icon: ClipboardPenLine },
@@ -427,6 +430,15 @@ export const CaregiverDashboard: React.FC = () => {
                 </div>
               )}
             </section>
+          )}
+
+          {/* TAB: MESSAGES & FRIENDS */}
+          {tab === 'messages' && (
+            <CaregiverChatPanel
+              patientId={currentPatient.id}
+              patientName={currentPatient.name}
+              isOwner={currentPatient.accessRole === 'owner'}
+            />
           )}
 
           {/* TAB 3: CARE PLAN */}

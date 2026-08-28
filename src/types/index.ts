@@ -1,5 +1,7 @@
 export type AppMode = 'patient' | 'caregiver' | 'asha';
 
+export type LanguageCode = 'English' | 'Hindi' | 'Assamese';
+
 export type UserRole = 'caregiver' | 'patient';
 
 export interface UserAccount {
@@ -366,6 +368,155 @@ export interface DetectedVoiceCommand {
   confidence: number;
   requiresConfirmation: boolean;
   transcript: string;
+}
+
+// -----------------------------------------------------------------
+// SUPERVISED PATIENT MESSAGING ("GREETINGS") MODELS
+// -----------------------------------------------------------------
+
+export type ConnectionStatus = 'awaiting-patient-ack' | 'active' | 'blocked' | 'ended';
+export type MessageType = 'template' | 'reaction';
+export type CompositionMethod = 'touch' | 'voice-selection';
+export type RecipientVisibility = 'visible' | 'held' | 'hidden';
+export type IncomingMode = 'normal' | 'held-for-caregiver';
+export type FlagCategory =
+  | 'distress'
+  | 'confusion'
+  | 'repeated-contact'
+  | 'inappropriate'
+  | 'patient-requested-help'
+  | 'other';
+export type FlagStatus = 'open' | 'reviewing' | 'resolved' | 'dismissed';
+
+export interface ChatConnectionInvite {
+  id: string;
+  invitingPatientId: string;
+  createdByCaregiverId: string;
+  tokenCode?: string; // Only returned once on creation
+  expiresAt: string;
+  redeemedAt?: string | null;
+  redeemedByCaregiverId?: string | null;
+  revokedAt?: string | null;
+  createdAt: string;
+}
+
+export interface PatientConnection {
+  id: string;
+  patientAId: string;
+  patientBId: string;
+  status: ConnectionStatus;
+  aApprovedBy: string;
+  aApprovedAt: string;
+  bApprovedBy?: string | null;
+  bApprovedAt?: string | null;
+  aAcknowledgedAt?: string | null;
+  bAcknowledgedAt?: string | null;
+  blockedByUserId?: string | null;
+  blockedForPatientId?: string | null;
+  blockedReason?: string | null;
+  blockedAt?: string | null;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  // Augmented view fields
+  otherPatientId: string;
+  otherPatientName: string;
+  otherPatientDistrict?: string;
+  myPatientId: string;
+  hasMyPatientAcknowledged: boolean;
+  hasOtherPatientAcknowledged: boolean;
+}
+
+export interface ConversationSummary {
+  id: string;
+  connectionId: string;
+  status: 'active' | 'archived' | 'closed';
+  lastMessageAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  connection: PatientConnection;
+  controls?: {
+    incomingMode: IncomingMode;
+    canSend: boolean;
+    notificationsMuted: boolean;
+    revision: number;
+  };
+  heldMessageCount?: number;
+  openFlagCount?: number;
+  unreadCount?: number;
+  lastMessage?: ChatMessage | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderPatientId: string;
+  recipientPatientId: string;
+  messageType: MessageType;
+  templateKey?: string | null;
+  catalogVersion?: number | null;
+  reactionCode?: string | null;
+  compositionMethod: CompositionMethod;
+  clientEventId: string;
+  clientCreatedAt: string;
+  acceptedAt?: string | null;
+  recipientVisibility: RecipientVisibility;
+  hiddenByUserId?: string | null;
+  hiddenAt?: string | null;
+  hiddenReason?: string | null;
+  createdAt: string;
+  // Client-only state
+  status?: 'pending-local' | 'accepted' | 'rejected';
+  rejectionReason?: string;
+}
+
+export interface ModerationFlag {
+  id: string;
+  conversationId: string;
+  messageId?: string | null;
+  flaggedForPatientId: string;
+  flaggedByUserId: string;
+  flaggedByRole?: 'caregiver' | 'patient';
+  category: FlagCategory;
+  notes?: string | null;
+  status: FlagStatus;
+  resolvedByUserId?: string | null;
+  resolvedAt?: string | null;
+  resolutionNotes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationAuditEvent {
+  id: string;
+  conversationId: string;
+  connectionId: string;
+  actorUserId: string;
+  actorRole: string;
+  eventType: string;
+  detailsJson: string;
+  createdAt: string;
+}
+
+export interface ChatOutboxItem {
+  id: string; // clientEventId
+  patientId: string;
+  conversationId: string;
+  expectedConnectionRevision: number;
+  payload: {
+    messageType: MessageType;
+    templateKey?: string;
+    catalogVersion?: number;
+    reactionCode?: string;
+    compositionMethod: CompositionMethod;
+    clientCreatedAt: string;
+  };
+  priority: 'normal' | 'critical';
+  status: 'pending' | 'syncing' | 'failed' | 'rejected';
+  attempts: number;
+  nextRetryAt: string;
+  lastError?: string | null;
+  createdAt: string;
 }
 
 

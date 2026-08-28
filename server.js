@@ -11,6 +11,11 @@ import {
   getMahjongSave, saveMahjongSave, deleteMahjongSave,
   completeReminderOccurrence, snoozeReminderOccurrence, listAlertEvents, updateAlertEventStatus,
   createSosAlert, savePushSubscription, deletePushSubscription,
+  createChatInvite, revokeChatInvite, redeemChatInvite, acknowledgeConnection,
+  listPatientConnections, listConversations, getConversationMessages, sendChatMessage,
+  muteConnection, unmuteConnection, blockConnection, createModerationFlag,
+  listModerationFlags, updateModerationFlag, hideChatMessage, releaseHeldChatMessage,
+  updateConversationRead, listConversationAuditEvents, syncChatOutbox,
 } from './server/store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,8 +70,10 @@ const requiredText = (value, label, minimum = 1) => {
 };
 const handleError = (res, error) => {
   const message = error instanceof Error ? error.message : 'Request failed.';
-  if (/UNIQUE constraint failed/i.test(message)) return res.status(409).json({ error: 'That username or email is already in use.' });
-  if (/required|at least|valid|username/i.test(message)) return res.status(400).json({ error: message });
+  if (/UNIQUE constraint failed/i.test(message)) return res.status(409).json({ error: 'That record already exists.' });
+  if (/required|at least|valid|invalid|username|template|reaction|participant|connection|active|paused|limit|wait|safety|not found|exist|blocked|already|expired|mismatch|access|permission/i.test(message)) {
+    return res.status(400).json({ error: message });
+  }
   console.error(error);
   return res.status(500).json({ error: 'The request could not be completed.' });
 };
@@ -248,6 +255,83 @@ app.get('/api/patients/:patientId/observations', authRequired, caregiverRequired
 app.post('/api/patients/:patientId/observations', authRequired, caregiverRequired, withPatientAccess(), (req, res) => {
   try { res.status(201).json({ observation: addObservation(req.params.patientId, req.authUser.id, { ...req.body, note: requiredText(req.body.note, 'Observation', 2) }) }); }
   catch (error) { handleError(res, error); }
+});
+
+// --- SUPERVISED PATIENT MESSAGING ("GREETINGS") API ---
+app.get('/api/patients/:patientId/chat/connections', authRequired, withPatientAccess(), (req, res) => {
+  try { res.json({ connections: listPatientConnections(req.params.patientId) }); } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/invites', authRequired, caregiverRequired, withPatientAccess('owner'), (req, res) => {
+  try { res.status(201).json({ invite: createChatInvite(req.params.patientId, req.authUser.id) }); } catch (error) { handleError(res, error); }
+});
+app.delete('/api/patients/:patientId/chat/invites/:inviteId', authRequired, caregiverRequired, withPatientAccess('owner'), (req, res) => {
+  try { res.json(revokeChatInvite(req.params.inviteId, req.authUser.id)); } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/invites/redeem', authRequired, caregiverRequired, withPatientAccess('owner'), (req, res) => {
+  try {
+    const connection = redeemChatInvite(req.params.patientId, req.authUser.id, req.body.code);
+    res.status(201).json({ connection });
+  } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/connections/:connectionId/acknowledge', authRequired, withPatientAccess('self'), (req, res) => {
+  try {
+    if (req.authUser.role !== 'patient') return res.status(403).json({ error: 'Only the patient can acknowledge this connection.' });
+    const connection = acknowledgeConnection(req.params.connectionId, req.authUser.id);
+    res.json({ connection });
+  } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/connections/:connectionId/mute', authRequired, caregiverRequired, withPatientAccess(), (req, res) => {
+  try { res.json(muteConnection(req.params.connectionId, req.authUser.id, req.params.patientId)); } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/connections/:connectionId/unmute', authRequired, caregiverRequired, withPatientAccess(), (req, res) => {
+  try { res.json(unmuteConnection(req.params.connectionId, req.authUser.id, req.params.patientId)); } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/connections/:connectionId/block', authRequired, caregiverRequired, withPatientAccess(), (req, res) => {
+  try { res.json(blockConnection(req.params.connectionId, req.authUser.id, req.params.patientId, req.body.reason)); } catch (error) { handleError(res, error); }
+});
+app.get('/api/patients/:patientId/chat/conversations', authRequired, withPatientAccess(), (req, res) => {
+  try { res.json({ conversations: listConversations(req.params.patientId, req.authUser) }); } catch (error) { handleError(res, error); }
+});
+app.get('/api/patients/:patientId/chat/conversations/:conversationId/messages', authRequired, withPatientAccess(), (req, res) => {
+  try {
+    const cursor = req.query.cursor ? JSON.parse(req.query.cursor) : null;
+    const limit = Number(req.query.limit) || 40;
+    res.json(getConversationMessages(req.params.conversationId, req.authUser, req.params.patientId, { cursor, limit }));
+  } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/conversations/:conversationId/messages', authRequired, withPatientAccess('self'), (req, res) => {
+  try {
+    if (req.authUser.role !== 'patient') return res.status(403).json({ error: 'Caregivers cannot send greetings on behalf of patients.' });
+    const result = sendChatMessage(req.params.patientId, req.params.conversationId, req.body);
+    res.status(result.isDuplicate ? 200 : 201).json(result);
+  } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/conversations/:conversationId/read', authRequired, withPatientAccess(), (req, res) => {
+  try { res.json(updateConversationRead(req.params.conversationId, req.authUser.id, req.body.messageId)); } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/sync', authRequired, withPatientAccess('self'), (req, res) => {
+  try {
+    if (req.authUser.role !== 'patient') return res.status(403).json({ error: 'Patient access required for outbox sync.' });
+    res.json(syncChatOutbox(req.params.patientId, req.body.operations || []));
+  } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/conversations/:conversationId/flags', authRequired, withPatientAccess(), (req, res) => {
+  try { res.status(201).json({ flag: createModerationFlag(req.params.conversationId, req.authUser, req.params.patientId, req.body) }); } catch (error) { handleError(res, error); }
+});
+app.get('/api/patients/:patientId/chat/moderation-flags', authRequired, caregiverRequired, withPatientAccess(), (req, res) => {
+  try { res.json({ flags: listModerationFlags(req.params.patientId, req.query.status) }); } catch (error) { handleError(res, error); }
+});
+app.patch('/api/patients/:patientId/chat/moderation-flags/:flagId', authRequired, caregiverRequired, withPatientAccess(), (req, res) => {
+  try { res.json({ flag: updateModerationFlag(req.params.flagId, req.authUser.id, req.body) }); } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/conversations/:conversationId/messages/:messageId/hide', authRequired, caregiverRequired, withPatientAccess(), (req, res) => {
+  try { res.json(hideChatMessage(req.params.conversationId, req.params.messageId, req.authUser.id, req.body.reason)); } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/chat/conversations/:conversationId/messages/:messageId/release', authRequired, caregiverRequired, withPatientAccess(), (req, res) => {
+  try { res.json(releaseHeldChatMessage(req.params.conversationId, req.params.messageId, req.authUser.id)); } catch (error) { handleError(res, error); }
+});
+app.get('/api/patients/:patientId/chat/conversations/:conversationId/audit', authRequired, caregiverRequired, withPatientAccess(), (req, res) => {
+  try { res.json({ events: listConversationAuditEvents(req.params.conversationId) }); } catch (error) { handleError(res, error); }
 });
 
 const distPath = path.join(__dirname, 'dist');

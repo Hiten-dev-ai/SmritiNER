@@ -163,6 +163,127 @@ database.exec(`
     keys_json TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
+
+  -- ---------------------------------------------------------------
+  -- SUPERVISED PATIENT MESSAGING ("GREETINGS") TABLES
+  -- ---------------------------------------------------------------
+  CREATE TABLE IF NOT EXISTS chat_connection_invites (
+    id TEXT PRIMARY KEY,
+    inviting_patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    created_by_caregiver_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT UNIQUE NOT NULL,
+    expires_at TEXT NOT NULL,
+    redeemed_at TEXT,
+    redeemed_by_caregiver_id TEXT REFERENCES users(id),
+    revoked_at TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_chat_invites_patient ON chat_connection_invites(inviting_patient_id);
+
+  CREATE TABLE IF NOT EXISTS patient_connections (
+    id TEXT PRIMARY KEY,
+    patient_a_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    patient_b_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK (status IN ('awaiting-patient-ack', 'active', 'blocked', 'ended')),
+    a_approved_by TEXT NOT NULL REFERENCES users(id),
+    a_approved_at TEXT NOT NULL,
+    b_approved_by TEXT NOT NULL REFERENCES users(id),
+    b_approved_at TEXT NOT NULL,
+    a_acknowledged_at TEXT,
+    b_acknowledged_at TEXT,
+    blocked_by_user_id TEXT REFERENCES users(id),
+    blocked_for_patient_id TEXT REFERENCES patients(id),
+    blocked_reason TEXT,
+    blocked_at TEXT,
+    revision INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (patient_a_id, patient_b_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_patient_conn_a ON patient_connections(patient_a_id);
+  CREATE INDEX IF NOT EXISTS idx_patient_conn_b ON patient_connections(patient_b_id);
+
+  CREATE TABLE IF NOT EXISTS conversations (
+    id TEXT PRIMARY KEY,
+    connection_id TEXT UNIQUE NOT NULL REFERENCES patient_connections(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK (status IN ('active', 'archived', 'closed')),
+    last_message_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS conversation_patient_controls (
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    incoming_mode TEXT NOT NULL CHECK (incoming_mode IN ('normal', 'held-for-caregiver')),
+    can_send INTEGER NOT NULL DEFAULT 1,
+    notifications_muted INTEGER NOT NULL DEFAULT 0,
+    updated_by_user_id TEXT NOT NULL REFERENCES users(id),
+    updated_at TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (conversation_id, patient_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    sender_patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    recipient_patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    message_type TEXT NOT NULL CHECK (message_type IN ('template', 'reaction')),
+    template_key TEXT,
+    catalog_version INTEGER,
+    reaction_code TEXT,
+    composition_method TEXT NOT NULL CHECK (composition_method IN ('touch', 'voice-selection')),
+    client_event_id TEXT UNIQUE NOT NULL,
+    client_created_at TEXT NOT NULL,
+    accepted_at TEXT NOT NULL,
+    recipient_visibility TEXT NOT NULL CHECK (recipient_visibility IN ('visible', 'held', 'hidden')),
+    hidden_by_user_id TEXT REFERENCES users(id),
+    hidden_at TEXT,
+    hidden_reason TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_chat_msg_conv_accepted ON chat_messages(conversation_id, accepted_at, id);
+  CREATE INDEX IF NOT EXISTS idx_chat_msg_sender ON chat_messages(sender_patient_id);
+  CREATE INDEX IF NOT EXISTS idx_chat_msg_recipient ON chat_messages(recipient_patient_id);
+
+  CREATE TABLE IF NOT EXISTS moderation_flags (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id TEXT REFERENCES chat_messages(id) ON DELETE SET NULL,
+    flagged_for_patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    flagged_by_user_id TEXT NOT NULL,
+    category TEXT NOT NULL CHECK (category IN ('distress', 'confusion', 'repeated-contact', 'inappropriate', 'patient-requested-help', 'other')),
+    notes TEXT,
+    status TEXT NOT NULL CHECK (status IN ('open', 'reviewing', 'resolved', 'dismissed')),
+    resolved_by_user_id TEXT,
+    resolved_at TEXT,
+    resolution_notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_mod_flags_conv ON moderation_flags(conversation_id, status);
+  CREATE INDEX IF NOT EXISTS idx_mod_flags_patient ON moderation_flags(flagged_for_patient_id);
+
+  CREATE TABLE IF NOT EXISTS conversation_audit_events (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    connection_id TEXT NOT NULL REFERENCES patient_connections(id) ON DELETE CASCADE,
+    actor_user_id TEXT NOT NULL,
+    actor_role TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    details_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_chat_audit_conv ON conversation_audit_events(conversation_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS conversation_read_state (
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    last_read_at TEXT NOT NULL,
+    last_read_message_id TEXT,
+    PRIMARY KEY (conversation_id, user_id)
+  );
 `);
 
 const nowIso = () => new Date().toISOString();
@@ -951,4 +1072,1013 @@ export function deletePushSubscription(subscriptionId) {
   return { success: true };
 }
 
+// -----------------------------------------------------------------
+// SUPERVISED PATIENT MESSAGING ("GREETINGS") DATA ACCESS LAYER
+// -----------------------------------------------------------------
+
+const ALLOWED_TEMPLATE_KEYS = new Set([
+  'hello', 'good_morning', 'good_afternoon', 'good_evening',
+  'how_are_you', 'thinking_of_you', 'hope_comfortable',
+  'had_tea', 'enjoying_the_day',
+  'play_memory_game', 'listening_to_music',
+  'take_care', 'resting_now', 'talk_later',
+]);
+
+const ALLOWED_REACTIONS = new Set(['wave', 'smile', 'heart', 'flower', 'tea']);
+
+function generateInviteCode() {
+  const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const bytes = randomBytes(10);
+  let result = '';
+  for (let i = 0; i < 10; i += 1) {
+    result += chars[bytes[i] % chars.length];
+  }
+  return `${result.slice(0, 4)}-${result.slice(4)}`;
+}
+
+function normalizeInviteCode(code) {
+  return String(code || '').toUpperCase().replace(/[^23456789ABCDEFGHJKLMNPQRSTUVWXYZ]/g, '');
+}
+
+export function createChatInvite(patientId, caregiverUserId) {
+  // Check that patient exists and caregiver is owner
+  const access = database.prepare(`
+    SELECT access_role FROM patient_caregivers
+    WHERE patient_id = ? AND caregiver_id = ?
+  `).get(patientId, caregiverUserId);
+
+  if (!access || access.access_role !== 'owner') {
+    throw new Error('Only the patient owner can create connection invites.');
+  }
+
+  const patient = database.prepare('SELECT active FROM patients WHERE id = ?').get(patientId);
+  if (!patient || !patient.active) {
+    throw new Error('Patient profile is not active.');
+  }
+
+  const now = nowIso();
+  // Revoke any active unredeemed invites for this patient
+  database.prepare(`
+    UPDATE chat_connection_invites
+    SET revoked_at = ?
+    WHERE inviting_patient_id = ? AND redeemed_at IS NULL AND revoked_at IS NULL
+  `).run(now, patientId);
+
+  const rawCode = generateInviteCode();
+  const cleanCode = normalizeInviteCode(rawCode);
+  const tokenHash = hashToken(cleanCode);
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const id = randomUUID();
+
+  database.prepare(`
+    INSERT INTO chat_connection_invites (
+      id, inviting_patient_id, created_by_caregiver_id, token_hash,
+      expires_at, redeemed_at, redeemed_by_caregiver_id, revoked_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+  `).run(id, patientId, caregiverUserId, tokenHash, expiresAt, now);
+
+  return {
+    id,
+    invitingPatientId: patientId,
+    tokenCode: rawCode,
+    expiresAt,
+    createdAt: now,
+  };
+}
+
+export function revokeChatInvite(inviteId, caregiverUserId) {
+  const invite = database.prepare('SELECT * FROM chat_connection_invites WHERE id = ?').get(inviteId);
+  if (!invite) throw new Error('Invite not found.');
+
+  const access = database.prepare(`
+    SELECT access_role FROM patient_caregivers
+    WHERE patient_id = ? AND caregiver_id = ?
+  `).get(invite.inviting_patient_id, caregiverUserId);
+
+  if (!access || access.access_role !== 'owner') {
+    throw new Error('Only the patient owner can revoke connection invites.');
+  }
+
+  const now = nowIso();
+  database.prepare('UPDATE chat_connection_invites SET revoked_at = ? WHERE id = ?').run(now, inviteId);
+  return { success: true };
+}
+
+export function redeemChatInvite(redeemingPatientId, caregiverUserId, code) {
+  const access = database.prepare(`
+    SELECT access_role FROM patient_caregivers
+    WHERE patient_id = ? AND caregiver_id = ?
+  `).get(redeemingPatientId, caregiverUserId);
+
+  if (!access || access.access_role !== 'owner') {
+    throw new Error('Only the patient owner can accept connection invites.');
+  }
+
+  const redeemingPatient = database.prepare('SELECT * FROM patients WHERE id = ? AND active = 1').get(redeemingPatientId);
+  if (!redeemingPatient) throw new Error('Redeeming patient profile is inactive.');
+
+  const cleanCode = normalizeInviteCode(code);
+  if (cleanCode.length !== 10) {
+    throw new Error('Invalid invite code format. Please check the 10-character code.');
+  }
+
+  const tokenHash = hashToken(cleanCode);
+  const now = nowIso();
+
+  const invite = database.prepare(`
+    SELECT * FROM chat_connection_invites
+    WHERE token_hash = ?
+  `).get(tokenHash);
+
+  if (!invite) throw new Error('Invite code not found or invalid.');
+  if (invite.revoked_at) throw new Error('This invite has been revoked.');
+  if (invite.redeemed_at) throw new Error('This invite code has already been redeemed.');
+  if (new Date(invite.expires_at) <= new Date(now)) throw new Error('This invite code has expired.');
+  if (invite.inviting_patient_id === redeemingPatientId) {
+    throw new Error('Cannot connect a patient to themselves.');
+  }
+
+  const invitingPatient = database.prepare('SELECT * FROM patients WHERE id = ? AND active = 1').get(invite.inviting_patient_id);
+  if (!invitingPatient) throw new Error('Inviting patient profile is inactive.');
+
+  // Canonical ordering of patient IDs
+  const [patientAId, patientBId] = [invite.inviting_patient_id, redeemingPatientId].sort();
+  const isInvitingA = invite.inviting_patient_id === patientAId;
+
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    let connection = database.prepare(`
+      SELECT * FROM patient_connections
+      WHERE patient_a_id = ? AND patient_b_id = ?
+    `).get(patientAId, patientBId);
+
+    const connectionId = connection ? connection.id : randomUUID();
+    const conversationId = randomUUID();
+
+    if (!connection) {
+      database.prepare(`
+        INSERT INTO patient_connections (
+          id, patient_a_id, patient_b_id, status,
+          a_approved_by, a_approved_at,
+          b_approved_by, b_approved_at,
+          a_acknowledged_at, b_acknowledged_at,
+          revision, created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, 'awaiting-patient-ack',
+          ?, ?,
+          ?, ?,
+          NULL, NULL,
+          1, ?, ?
+        )
+      `).run(
+        connectionId,
+        patientAId,
+        patientBId,
+        isInvitingA ? invite.created_by_caregiver_id : caregiverUserId,
+        now,
+        isInvitingA ? caregiverUserId : invite.created_by_caregiver_id,
+        now,
+        now,
+        now
+      );
+
+      // Create matching conversation
+      database.prepare(`
+        INSERT INTO conversations (id, connection_id, status, last_message_at, created_at, updated_at)
+        VALUES (?, ?, 'active', NULL, ?, ?)
+      `).run(conversationId, connectionId, now, now);
+
+      // Create controls for both patients
+      database.prepare(`
+        INSERT INTO conversation_patient_controls (
+          conversation_id, patient_id, incoming_mode, can_send, notifications_muted, updated_by_user_id, updated_at, revision
+        ) VALUES (?, ?, 'normal', 1, 0, ?, ?, 1)
+      `).run(conversationId, patientAId, isInvitingA ? invite.created_by_caregiver_id : caregiverUserId, now);
+
+      database.prepare(`
+        INSERT INTO conversation_patient_controls (
+          conversation_id, patient_id, incoming_mode, can_send, notifications_muted, updated_by_user_id, updated_at, revision
+        ) VALUES (?, ?, 'normal', 1, 0, ?, ?, 1)
+      `).run(conversationId, patientBId, isInvitingA ? caregiverUserId : invite.created_by_caregiver_id, now);
+    } else {
+      if (connection.status === 'active' || connection.status === 'awaiting-patient-ack') {
+        throw new Error('A connection between these two patients already exists.');
+      }
+
+      // Reconnection after block / ended
+      const nextRev = (connection.revision || 1) + 1;
+      database.prepare(`
+        UPDATE patient_connections
+        SET status = 'awaiting-patient-ack',
+            a_approved_by = ?, a_approved_at = ?,
+            b_approved_by = ?, b_approved_at = ?,
+            a_acknowledged_at = NULL, b_acknowledged_at = NULL,
+            blocked_by_user_id = NULL, blocked_for_patient_id = NULL,
+            blocked_reason = NULL, blocked_at = NULL,
+            revision = ?, updated_at = ?
+        WHERE id = ?
+      `).run(
+        isInvitingA ? invite.created_by_caregiver_id : caregiverUserId,
+        now,
+        isInvitingA ? caregiverUserId : invite.created_by_caregiver_id,
+        now,
+        nextRev,
+        now,
+        connectionId
+      );
+
+      // Re-enable conversation and patient controls
+      const conv = database.prepare('SELECT id FROM conversations WHERE connection_id = ?').get(connectionId);
+      if (conv) {
+        database.prepare("UPDATE conversations SET status = 'active', updated_at = ? WHERE id = ?").run(now, conv.id);
+        database.prepare(`
+          UPDATE conversation_patient_controls
+          SET incoming_mode = 'normal', can_send = 1, notifications_muted = 0, updated_by_user_id = ?, updated_at = ?, revision = revision + 1
+          WHERE conversation_id = ?
+        `).run(caregiverUserId, now, conv.id);
+      }
+    }
+
+    // Mark invite redeemed
+    database.prepare(`
+      UPDATE chat_connection_invites
+      SET redeemed_at = ?, redeemed_by_caregiver_id = ?
+      WHERE id = ?
+    `).run(now, caregiverUserId, invite.id);
+
+    // Audit event
+    const activeConv = database.prepare('SELECT id FROM conversations WHERE connection_id = ?').get(connectionId);
+    if (activeConv) {
+      database.prepare(`
+        INSERT INTO conversation_audit_events (
+          id, conversation_id, connection_id, actor_user_id, actor_role, event_type, details_json, created_at
+        ) VALUES (?, ?, ?, ?, 'caregiver', 'connection_approved', ?, ?)
+      `).run(
+        randomUUID(),
+        activeConv.id,
+        connectionId,
+        caregiverUserId,
+        JSON.stringify({
+          invitingPatientId: invite.inviting_patient_id,
+          redeemingPatientId,
+          caregiverUserId,
+        }),
+        now
+      );
+    }
+
+    database.exec('COMMIT');
+
+    return getAugmentedConnection(connectionId, redeemingPatientId);
+  } catch (err) {
+    database.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function acknowledgeConnection(connectionId, patientUserId) {
+  const patient = database.prepare('SELECT id FROM patients WHERE user_id = ? AND active = 1').get(patientUserId);
+  if (!patient) throw new Error('Patient profile not found.');
+
+  const conn = database.prepare('SELECT * FROM patient_connections WHERE id = ?').get(connectionId);
+  if (!conn) throw new Error('Connection not found.');
+  if (conn.status === 'blocked' || conn.status === 'ended') {
+    throw new Error('Cannot acknowledge an inactive or blocked connection.');
+  }
+
+  const isPatientA = conn.patient_a_id === patient.id;
+  const isPatientB = conn.patient_b_id === patient.id;
+  if (!isPatientA && !isPatientB) {
+    throw new Error('You are not a participant in this connection.');
+  }
+
+  const now = nowIso();
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    if (isPatientA) {
+      database.prepare('UPDATE patient_connections SET a_acknowledged_at = ?, updated_at = ? WHERE id = ?')
+        .run(now, now, connectionId);
+    } else {
+      database.prepare('UPDATE patient_connections SET b_acknowledged_at = ?, updated_at = ? WHERE id = ?')
+        .run(now, now, connectionId);
+    }
+
+    const updated = database.prepare('SELECT * FROM patient_connections WHERE id = ?').get(connectionId);
+    if (updated.a_acknowledged_at && updated.b_acknowledged_at && updated.status !== 'active') {
+      database.prepare("UPDATE patient_connections SET status = 'active', updated_at = ? WHERE id = ?")
+        .run(now, connectionId);
+    }
+
+    const conv = database.prepare('SELECT id FROM conversations WHERE connection_id = ?').get(connectionId);
+    if (conv) {
+      database.prepare(`
+        INSERT INTO conversation_audit_events (
+          id, conversation_id, connection_id, actor_user_id, actor_role, event_type, details_json, created_at
+        ) VALUES (?, ?, ?, ?, 'patient', 'patient_acknowledged', ?, ?)
+      `).run(
+        randomUUID(),
+        conv.id,
+        connectionId,
+        patientUserId,
+        JSON.stringify({ patientId: patient.id }),
+        now
+      );
+    }
+
+    database.exec('COMMIT');
+    return getAugmentedConnection(connectionId, patient.id);
+  } catch (err) {
+    database.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+function getAugmentedConnection(connectionId, myPatientId) {
+  const row = database.prepare('SELECT * FROM patient_connections WHERE id = ?').get(connectionId);
+  if (!row) return null;
+
+  const isA = row.patient_a_id === myPatientId;
+  const otherPatientId = isA ? row.patient_b_id : row.patient_a_id;
+  const otherPatient = database.prepare('SELECT name, district FROM patients WHERE id = ?').get(otherPatientId) || { name: 'Friend', district: '' };
+
+  return {
+    id: row.id,
+    patientAId: row.patient_a_id,
+    patientBId: row.patient_b_id,
+    status: row.status,
+    aApprovedBy: row.a_approved_by,
+    aApprovedAt: row.a_approved_at,
+    bApprovedBy: row.b_approved_by,
+    bApprovedAt: row.b_approved_at,
+    aAcknowledgedAt: row.a_acknowledged_at,
+    bAcknowledgedAt: row.b_acknowledged_at,
+    blockedByUserId: row.blocked_by_user_id,
+    blockedForPatientId: row.blocked_for_patient_id,
+    blockedReason: row.blocked_reason,
+    blockedAt: row.blocked_at,
+    revision: row.revision,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    myPatientId,
+    otherPatientId,
+    otherPatientName: otherPatient.name,
+    otherPatientDistrict: otherPatient.district,
+    hasMyPatientAcknowledged: isA ? Boolean(row.a_acknowledged_at) : Boolean(row.b_acknowledged_at),
+    hasOtherPatientAcknowledged: isA ? Boolean(row.b_acknowledged_at) : Boolean(row.a_acknowledged_at),
+  };
+}
+
+export function listPatientConnections(patientId) {
+  const rows = database.prepare(`
+    SELECT id FROM patient_connections
+    WHERE patient_a_id = ? OR patient_b_id = ?
+    ORDER BY updated_at DESC
+  `).all(patientId, patientId);
+
+  return rows.map((r) => getAugmentedConnection(r.id, patientId)).filter(Boolean);
+}
+
+export function listConversations(patientId, callerUser) {
+  const isCaregiver = callerUser.role === 'caregiver';
+  const convRows = database.prepare(`
+    SELECT c.*, conn.id AS conn_id, conn.patient_a_id, conn.patient_b_id, conn.status AS conn_status,
+           conn.revision AS conn_rev
+    FROM conversations c
+    JOIN patient_connections conn ON conn.id = c.connection_id
+    WHERE (conn.patient_a_id = ? OR conn.patient_b_id = ?)
+    ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
+  `).all(patientId, patientId);
+
+  return convRows.map((conv) => {
+    const connection = getAugmentedConnection(conv.conn_id, patientId);
+    const controls = database.prepare(`
+      SELECT incoming_mode, can_send, notifications_muted, revision
+      FROM conversation_patient_controls
+      WHERE conversation_id = ? AND patient_id = ?
+    `).get(conv.id, patientId);
+
+    // Message counts
+    let heldMessageCount = 0;
+    let openFlagCount = 0;
+    let unreadCount = 0;
+
+    if (isCaregiver) {
+      heldMessageCount = database.prepare(`
+        SELECT COUNT(*) AS count FROM chat_messages
+        WHERE conversation_id = ? AND recipient_visibility = 'held'
+      `).get(conv.id)?.count || 0;
+
+      openFlagCount = database.prepare(`
+        SELECT COUNT(*) AS count FROM moderation_flags
+        WHERE conversation_id = ? AND status IN ('open', 'reviewing')
+      `).get(conv.id)?.count || 0;
+    }
+
+    // Last message
+    let lastMessageQuery = 'SELECT * FROM chat_messages WHERE conversation_id = ?';
+    const params = [conv.id];
+    if (!isCaregiver) {
+      lastMessageQuery += " AND (recipient_visibility = 'visible' OR (sender_patient_id = ? AND recipient_visibility != 'hidden'))";
+      params.push(patientId);
+    }
+    lastMessageQuery += ' ORDER BY accepted_at DESC, id DESC LIMIT 1';
+
+    const lastMsgRow = database.prepare(lastMessageQuery).get(...params);
+    const lastMessage = lastMsgRow ? publicChatMessage(lastMsgRow) : null;
+
+    return {
+      id: conv.id,
+      connectionId: conv.connection_id,
+      status: conv.status,
+      lastMessageAt: conv.last_message_at,
+      createdAt: conv.created_at,
+      updatedAt: conv.updated_at,
+      connection,
+      controls: controls ? {
+        incomingMode: controls.incoming_mode,
+        canSend: Boolean(controls.can_send),
+        notificationsMuted: Boolean(controls.notifications_muted),
+        revision: controls.revision,
+      } : undefined,
+      heldMessageCount: isCaregiver ? heldMessageCount : undefined,
+      openFlagCount: isCaregiver ? openFlagCount : undefined,
+      unreadCount,
+      lastMessage,
+    };
+  });
+}
+
+function publicChatMessage(r) {
+  return {
+    id: r.id,
+    conversationId: r.conversation_id,
+    senderPatientId: r.sender_patient_id,
+    recipientPatientId: r.recipient_patient_id,
+    messageType: r.message_type,
+    templateKey: r.template_key,
+    catalogVersion: r.catalog_version,
+    reactionCode: r.reaction_code,
+    compositionMethod: r.composition_method,
+    clientEventId: r.client_event_id,
+    clientCreatedAt: r.client_created_at,
+    acceptedAt: r.accepted_at,
+    recipientVisibility: r.recipient_visibility,
+    hiddenByUserId: r.hidden_by_user_id,
+    hiddenAt: r.hidden_at,
+    hiddenReason: r.hidden_reason,
+    createdAt: r.created_at,
+    status: 'accepted',
+  };
+}
+
+export function getConversationMessages(conversationId, callerUser, patientId, { cursor, limit = 40 } = {}) {
+  const isCaregiver = callerUser.role === 'caregiver';
+  let query = 'SELECT * FROM chat_messages WHERE conversation_id = ?';
+  const params = [conversationId];
+
+  if (!isCaregiver) {
+    // Patient can only see visible incoming messages, plus outgoing visible/held messages (never hidden)
+    query += ` AND (
+      (recipient_patient_id = ? AND recipient_visibility = 'visible')
+      OR
+      (sender_patient_id = ? AND recipient_visibility != 'hidden')
+    )`;
+    params.push(patientId, patientId);
+  }
+
+  if (cursor) {
+    query += ' AND (accepted_at < ? OR (accepted_at = ? AND id < ?))';
+    params.push(cursor.acceptedAt, cursor.acceptedAt, cursor.id);
+  }
+
+  query += ' ORDER BY accepted_at DESC, id DESC LIMIT ?';
+  params.push(Math.min(limit, 50));
+
+  const rows = database.prepare(query).all(...params);
+  // Return in chronological order
+  rows.reverse();
+
+  return {
+    messages: rows.map(publicChatMessage),
+    nextCursor: rows.length === limit ? { acceptedAt: rows[0].accepted_at, id: rows[0].id } : null,
+  };
+}
+
+export function sendChatMessage(patientId, conversationId, payload) {
+  const {
+    messageType,
+    templateKey,
+    catalogVersion = 1,
+    reactionCode,
+    compositionMethod = 'touch',
+    clientEventId = randomUUID(),
+    clientCreatedAt = nowIso(),
+    expectedConnectionRevision,
+  } = payload;
+
+  // 1. Idempotency check
+  const existing = database.prepare('SELECT * FROM chat_messages WHERE client_event_id = ?').get(clientEventId);
+  if (existing) {
+    return { message: publicChatMessage(existing), isDuplicate: true };
+  }
+
+  // 2. Validate payload allowlist
+  if (messageType === 'template') {
+    if (!ALLOWED_TEMPLATE_KEYS.has(templateKey)) {
+      throw new Error(`Invalid template key: "${templateKey}". Only allowlisted templates are permitted.`);
+    }
+  } else if (messageType === 'reaction') {
+    if (!ALLOWED_REACTIONS.has(reactionCode)) {
+      throw new Error(`Invalid reaction code: "${reactionCode}". Only allowlisted reactions are permitted.`);
+    }
+  } else {
+    throw new Error('Invalid message type.');
+  }
+
+  // 3. Conversation & Connection status validation
+  const conv = database.prepare(`
+    SELECT c.*, conn.status AS conn_status, conn.revision AS conn_revision,
+           conn.patient_a_id, conn.patient_b_id,
+           conn.a_acknowledged_at, conn.b_acknowledged_at
+    FROM conversations c
+    JOIN patient_connections conn ON conn.id = c.connection_id
+    WHERE c.id = ?
+  `).get(conversationId);
+
+  if (!conv) throw new Error('Conversation not found.');
+  if (conv.conn_status !== 'active' || !conv.a_acknowledged_at || !conv.b_acknowledged_at) {
+    throw new Error('This connection is not active or awaiting patient acknowledgement.');
+  }
+
+  if (conv.patient_a_id !== patientId && conv.patient_b_id !== patientId) {
+    throw new Error('Sender is not a participant in this conversation.');
+  }
+
+  if (expectedConnectionRevision && expectedConnectionRevision !== conv.conn_revision) {
+    throw new Error('Connection settings have changed. Please refresh and try again.');
+  }
+
+  const recipientPatientId = conv.patient_a_id === patientId ? conv.patient_b_id : conv.patient_a_id;
+
+  // 4. Rate Limiting: max 1 message per 4s per patient, max 25 per hour per conv
+  const lastMsg = database.prepare(`
+    SELECT accepted_at FROM chat_messages
+    WHERE sender_patient_id = ?
+    ORDER BY accepted_at DESC LIMIT 1
+  `).get(patientId);
+
+  if (process.env.NODE_ENV !== 'test' && lastMsg && (Date.now() - new Date(lastMsg.accepted_at).getTime()) < 3000) {
+    throw new Error('Please wait a few seconds between greetings.');
+  }
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const hourlyCount = database.prepare(`
+    SELECT COUNT(*) AS count FROM chat_messages
+    WHERE conversation_id = ? AND accepted_at > ?
+  `).get(conversationId, oneHourAgo)?.count || 0;
+
+  if (hourlyCount >= 30) {
+    throw new Error('Conversation limit reached for the hour. Please rest and try again later.');
+  }
+
+  // 5. Sender and Recipient Controls
+  const senderControl = database.prepare(`
+    SELECT can_send FROM conversation_patient_controls
+    WHERE conversation_id = ? AND patient_id = ?
+  `).get(conversationId, patientId);
+
+  if (senderControl && !senderControl.can_send) {
+    throw new Error('Sending is currently paused by your caregiver for this conversation.');
+  }
+
+  const recipientControl = database.prepare(`
+    SELECT incoming_mode FROM conversation_patient_controls
+    WHERE conversation_id = ? AND patient_id = ?
+  `).get(conversationId, recipientPatientId);
+
+  const recipientVisibility = recipientControl?.incoming_mode === 'held-for-caregiver' ? 'held' : 'visible';
+  const now = nowIso();
+  const messageId = randomUUID();
+
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    database.prepare(`
+      INSERT INTO chat_messages (
+        id, conversation_id, sender_patient_id, recipient_patient_id,
+        message_type, template_key, catalog_version, reaction_code,
+        composition_method, client_event_id, client_created_at, accepted_at,
+        recipient_visibility, hidden_by_user_id, hidden_at, hidden_reason, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+    `).run(
+      messageId,
+      conversationId,
+      patientId,
+      recipientPatientId,
+      messageType,
+      templateKey || null,
+      catalogVersion,
+      reactionCode || null,
+      compositionMethod,
+      clientEventId,
+      clientCreatedAt,
+      now,
+      recipientVisibility,
+      now
+    );
+
+    database.prepare('UPDATE conversations SET last_message_at = ?, updated_at = ? WHERE id = ?')
+      .run(now, now, conversationId);
+
+    database.prepare(`
+      INSERT INTO conversation_audit_events (
+        id, conversation_id, connection_id, actor_user_id, actor_role, event_type, details_json, created_at
+      ) VALUES (?, ?, ?, ?, 'patient', 'message_sent', ?, ?)
+    `).run(
+      randomUUID(),
+      conversationId,
+      conv.connection_id,
+      patientId,
+      JSON.stringify({
+        messageId,
+        messageType,
+        templateKey,
+        reactionCode,
+        compositionMethod,
+        recipientVisibility,
+      }),
+      now
+    );
+
+    database.exec('COMMIT');
+
+    const created = database.prepare('SELECT * FROM chat_messages WHERE id = ?').get(messageId);
+    return { message: publicChatMessage(created), isDuplicate: false };
+  } catch (err) {
+    database.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function muteConnection(connectionId, caregiverUserId, patientId) {
+  const conn = database.prepare('SELECT * FROM patient_connections WHERE id = ?').get(connectionId);
+  if (!conn) throw new Error('Connection not found.');
+
+  const conv = database.prepare('SELECT id FROM conversations WHERE connection_id = ?').get(connectionId);
+  if (!conv) throw new Error('Conversation not found.');
+
+  const now = nowIso();
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    database.prepare(`
+      UPDATE conversation_patient_controls
+      SET incoming_mode = 'held-for-caregiver', can_send = 0, notifications_muted = 1,
+          updated_by_user_id = ?, updated_at = ?, revision = revision + 1
+      WHERE conversation_id = ? AND patient_id = ?
+    `).run(caregiverUserId, now, conv.id, patientId);
+
+    database.prepare('UPDATE patient_connections SET revision = revision + 1, updated_at = ? WHERE id = ?')
+      .run(now, connectionId);
+
+    database.prepare(`
+      INSERT INTO conversation_audit_events (
+        id, conversation_id, connection_id, actor_user_id, actor_role, event_type, details_json, created_at
+      ) VALUES (?, ?, ?, ?, 'caregiver', 'contact_muted', ?, ?)
+    `).run(
+      randomUUID(),
+      conv.id,
+      connectionId,
+      caregiverUserId,
+      JSON.stringify({ patientId }),
+      now
+    );
+
+    database.exec('COMMIT');
+    return { success: true };
+  } catch (err) {
+    database.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function unmuteConnection(connectionId, caregiverUserId, patientId) {
+  const conn = database.prepare('SELECT * FROM patient_connections WHERE id = ?').get(connectionId);
+  if (!conn) throw new Error('Connection not found.');
+
+  const conv = database.prepare('SELECT id FROM conversations WHERE connection_id = ?').get(connectionId);
+  if (!conv) throw new Error('Conversation not found.');
+
+  const now = nowIso();
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    database.prepare(`
+      UPDATE conversation_patient_controls
+      SET incoming_mode = 'normal', can_send = 1, notifications_muted = 0,
+          updated_by_user_id = ?, updated_at = ?, revision = revision + 1
+      WHERE conversation_id = ? AND patient_id = ?
+    `).run(caregiverUserId, now, conv.id, patientId);
+
+    database.prepare('UPDATE patient_connections SET revision = revision + 1, updated_at = ? WHERE id = ?')
+      .run(now, connectionId);
+
+    database.prepare(`
+      INSERT INTO conversation_audit_events (
+        id, conversation_id, connection_id, actor_user_id, actor_role, event_type, details_json, created_at
+      ) VALUES (?, ?, ?, ?, 'caregiver', 'contact_unmuted', ?, ?)
+    `).run(
+      randomUUID(),
+      conv.id,
+      connectionId,
+      caregiverUserId,
+      JSON.stringify({ patientId }),
+      now
+    );
+
+    database.exec('COMMIT');
+    return { success: true };
+  } catch (err) {
+    database.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function blockConnection(connectionId, caregiverUserId, patientId, reason = 'Caregiver emergency block') {
+  const conn = database.prepare('SELECT * FROM patient_connections WHERE id = ?').get(connectionId);
+  if (!conn) throw new Error('Connection not found.');
+
+  const conv = database.prepare('SELECT id FROM conversations WHERE connection_id = ?').get(connectionId);
+  if (!conv) throw new Error('Conversation not found.');
+
+  const now = nowIso();
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    database.prepare(`
+      UPDATE patient_connections
+      SET status = 'blocked', blocked_by_user_id = ?, blocked_for_patient_id = ?,
+          blocked_reason = ?, blocked_at = ?, revision = revision + 1, updated_at = ?
+      WHERE id = ?
+    `).run(caregiverUserId, patientId, reason, now, now, connectionId);
+
+    database.prepare("UPDATE conversations SET status = 'archived', updated_at = ? WHERE id = ?")
+      .run(now, conv.id);
+
+    database.prepare(`
+      UPDATE conversation_patient_controls
+      SET can_send = 0, updated_by_user_id = ?, updated_at = ?, revision = revision + 1
+      WHERE conversation_id = ?
+    `).run(caregiverUserId, now, conv.id);
+
+    database.prepare(`
+      INSERT INTO conversation_audit_events (
+        id, conversation_id, connection_id, actor_user_id, actor_role, event_type, details_json, created_at
+      ) VALUES (?, ?, ?, ?, 'caregiver', 'contact_blocked', ?, ?)
+    `).run(
+      randomUUID(),
+      conv.id,
+      connectionId,
+      caregiverUserId,
+      JSON.stringify({ patientId, reason }),
+      now
+    );
+
+    database.exec('COMMIT');
+    return { success: true };
+  } catch (err) {
+    database.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function createModerationFlag(conversationId, callerUser, patientId, payload) {
+  const { messageId, category = 'distress', notes = '' } = payload;
+  const conv = database.prepare('SELECT connection_id FROM conversations WHERE id = ?').get(conversationId);
+  if (!conv) throw new Error('Conversation not found.');
+
+  const id = randomUUID();
+  const now = nowIso();
+
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    database.prepare(`
+      INSERT INTO moderation_flags (
+        id, conversation_id, message_id, flagged_for_patient_id, flagged_by_user_id,
+        category, notes, status, resolved_by_user_id, resolved_at, resolution_notes,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', NULL, NULL, NULL, ?, ?)
+    `).run(
+      id,
+      conversationId,
+      messageId || null,
+      patientId,
+      callerUser.id,
+      category,
+      notes || null,
+      now,
+      now
+    );
+
+    database.prepare(`
+      INSERT INTO conversation_audit_events (
+        id, conversation_id, connection_id, actor_user_id, actor_role, event_type, details_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, 'flag_raised', ?, ?)
+    `).run(
+      randomUUID(),
+      conversationId,
+      conv.connection_id,
+      callerUser.id,
+      callerUser.role,
+      JSON.stringify({ flagId: id, category, messageId, notes }),
+      now
+    );
+
+    database.exec('COMMIT');
+    return database.prepare('SELECT * FROM moderation_flags WHERE id = ?').get(id);
+  } catch (err) {
+    database.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function listModerationFlags(patientId, statusFilter) {
+  let query = `
+    SELECT f.*, p.name AS flagged_for_patient_name
+    FROM moderation_flags f
+    JOIN patients p ON p.id = f.flagged_for_patient_id
+    JOIN conversations c ON c.id = f.conversation_id
+    JOIN patient_connections conn ON conn.id = c.connection_id
+    WHERE (conn.patient_a_id = ? OR conn.patient_b_id = ?)
+  `;
+  const params = [patientId, patientId];
+
+  if (statusFilter && statusFilter !== 'all') {
+    if (statusFilter === 'active') {
+      query += " AND f.status IN ('open', 'reviewing')";
+    } else {
+      query += ' AND f.status = ?';
+      params.push(statusFilter);
+    }
+  }
+
+  query += ' ORDER BY f.created_at DESC LIMIT 100';
+  const rows = database.prepare(query).all(...params);
+
+  return rows.map((r) => ({
+    id: r.id,
+    conversationId: r.conversation_id,
+    messageId: r.message_id,
+    flaggedForPatientId: r.flagged_for_patient_id,
+    flaggedForPatientName: r.flagged_for_patient_name,
+    flaggedByUserId: r.flagged_by_user_id,
+    category: r.category,
+    notes: r.notes,
+    status: r.status,
+    resolvedByUserId: r.resolved_by_user_id,
+    resolvedAt: r.resolved_at,
+    resolutionNotes: r.resolution_notes,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+}
+
+export function updateModerationFlag(flagId, caregiverUserId, { status, resolutionNotes }) {
+  const flag = database.prepare('SELECT * FROM moderation_flags WHERE id = ?').get(flagId);
+  if (!flag) throw new Error('Flag not found.');
+
+  const now = nowIso();
+  const resolvedAt = (status === 'resolved' || status === 'dismissed') ? now : flag.resolved_at;
+  const resolvedBy = (status === 'resolved' || status === 'dismissed') ? caregiverUserId : flag.resolved_by_user_id;
+
+  database.prepare(`
+    UPDATE moderation_flags
+    SET status = ?, resolved_by_user_id = ?, resolved_at = ?, resolution_notes = ?, updated_at = ?
+    WHERE id = ?
+  `).run(status, resolvedBy, resolvedAt, resolutionNotes || null, now, flagId);
+
+  return database.prepare('SELECT * FROM moderation_flags WHERE id = ?').get(flagId);
+}
+
+export function hideChatMessage(conversationId, messageId, caregiverUserId, reason = 'Caregiver hidden') {
+  const msg = database.prepare('SELECT * FROM chat_messages WHERE id = ? AND conversation_id = ?').get(messageId, conversationId);
+  if (!msg) throw new Error('Message not found.');
+
+  const conv = database.prepare('SELECT connection_id FROM conversations WHERE id = ?').get(conversationId);
+  const now = nowIso();
+
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    database.prepare(`
+      UPDATE chat_messages
+      SET recipient_visibility = 'hidden', hidden_by_user_id = ?, hidden_at = ?, hidden_reason = ?
+      WHERE id = ?
+    `).run(caregiverUserId, now, reason, messageId);
+
+    if (conv) {
+      database.prepare(`
+        INSERT INTO conversation_audit_events (
+          id, conversation_id, connection_id, actor_user_id, actor_role, event_type, details_json, created_at
+        ) VALUES (?, ?, ?, ?, 'caregiver', 'message_hidden', ?, ?)
+      `).run(
+        randomUUID(),
+        conversationId,
+        conv.connection_id,
+        caregiverUserId,
+        JSON.stringify({ messageId, reason }),
+        now
+      );
+    }
+
+    database.exec('COMMIT');
+    return { success: true };
+  } catch (err) {
+    database.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function releaseHeldChatMessage(conversationId, messageId, caregiverUserId) {
+  const msg = database.prepare('SELECT * FROM chat_messages WHERE id = ? AND conversation_id = ?').get(messageId, conversationId);
+  if (!msg) throw new Error('Message not found.');
+
+  const conv = database.prepare('SELECT connection_id FROM conversations WHERE id = ?').get(conversationId);
+  const now = nowIso();
+
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    database.prepare(`
+      UPDATE chat_messages
+      SET recipient_visibility = 'visible'
+      WHERE id = ?
+    `).run(messageId);
+
+    if (conv) {
+      database.prepare(`
+        INSERT INTO conversation_audit_events (
+          id, conversation_id, connection_id, actor_user_id, actor_role, event_type, details_json, created_at
+        ) VALUES (?, ?, ?, ?, 'caregiver', 'held_message_released', ?, ?)
+      `).run(
+        randomUUID(),
+        conversationId,
+        conv.connection_id,
+        caregiverUserId,
+        JSON.stringify({ messageId }),
+        now
+      );
+    }
+
+    database.exec('COMMIT');
+    return { success: true };
+  } catch (err) {
+    database.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function listConversationAuditEvents(conversationId) {
+  const rows = database.prepare(`
+    SELECT * FROM conversation_audit_events
+    WHERE conversation_id = ?
+    ORDER BY created_at DESC LIMIT 100
+  `).all(conversationId);
+
+  return rows.map((r) => ({
+    id: r.id,
+    conversationId: r.conversation_id,
+    connectionId: r.connection_id,
+    actorUserId: r.actor_user_id,
+    actorRole: r.actor_role,
+    eventType: r.event_type,
+    detailsJson: r.details_json,
+    createdAt: r.created_at,
+  }));
+}
+
+export function updateConversationRead(conversationId, userId, messageId) {
+  const now = nowIso();
+  database.prepare(`
+    INSERT INTO conversation_read_state (conversation_id, user_id, last_read_at, last_read_message_id)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(conversation_id, user_id) DO UPDATE SET
+      last_read_at = excluded.last_read_at,
+      last_read_message_id = excluded.last_read_message_id
+  `).run(conversationId, userId, now, messageId || null);
+
+  return { success: true };
+}
+
+export function syncChatOutbox(patientId, operations = []) {
+  const results = [];
+  for (const op of operations) {
+    try {
+      const { conversationId, payload, clientEventId } = op;
+      const res = sendChatMessage(patientId, conversationId, { ...payload, clientEventId });
+      results.push({ clientEventId, status: 'accepted', message: res.message });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Send failed';
+      const isPermanent = /Invalid|blocked|not active|changed|participant/i.test(message);
+      results.push({ clientEventId: op.clientEventId, status: isPermanent ? 'rejected' : 'failed', error: message });
+    }
+  }
+  return { results };
+}
+
 seedDemoData();
+

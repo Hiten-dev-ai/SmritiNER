@@ -16,6 +16,9 @@ export class SmritiDatabase extends Dexie {
   reminiscenceItems!: Table<ReminiscencePhoto, number>;
   ashaScreenings!: Table<AshaScreeningRecord, number>;
   hydrationLogs!: Table<DailyHydrationLog, number>;
+  chatConversations!: Table<any, string>;
+  chatMessages!: Table<any, string>;
+  chatOutbox!: Table<any, string>;
 
   constructor() {
     super('SmritiNER_DB');
@@ -39,6 +42,17 @@ export class SmritiDatabase extends Dexie {
         reminder.repeat ??= 'daily';
         reminder.alertsEnabled ??= true;
       });
+    });
+    this.version(3).stores({
+      patients: 'id, name, state',
+      gameSessions: '++id, patientId, gameType, completedAt, synced',
+      reminders: '++id, patientId, category, synced',
+      reminiscenceItems: '++id, patientId, synced',
+      ashaScreenings: '++id, elderName, district, dementiaRiskCategory, synced',
+      hydrationLogs: '++id, patientId, date, synced',
+      chatConversations: 'id, patientId, connectionId, status, lastMessageAt',
+      chatMessages: 'id, conversationId, senderPatientId, recipientPatientId, clientEventId, acceptedAt, createdAt',
+      chatOutbox: 'id, patientId, conversationId, priority, status, nextRetryAt',
     });
   }
 }

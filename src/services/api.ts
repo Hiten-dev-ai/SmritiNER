@@ -22,6 +22,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export interface AuthPayload { user: UserAccount; patients: AuthenticatedPatient[]; expiresAt?: string }
 
 export const api = {
+  get: <T>(path: string) => request<T>(path),
+  post: <T>(path: string, body: any) => request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
+  patch: <T>(path: string, body: any) => request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
+  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
   login: (identifier: string, password: string) => request<AuthPayload>('/api/auth/login', { method: 'POST', body: JSON.stringify({ identifier, password }) }),
   registerCaregiver: (input: { displayName: string; username: string; email: string; password: string }) => request<AuthPayload>('/api/auth/register-caregiver', { method: 'POST', body: JSON.stringify(input) }),
   me: () => request<AuthPayload>('/api/auth/me'),

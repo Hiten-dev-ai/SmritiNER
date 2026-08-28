@@ -156,6 +156,36 @@ export interface TranslationDictionary {
   resolve: string;
   savedOnDevice: string;
   mahjongBlockedHelp: string;
+
+  greetings: string;
+  greetingsDesc: string;
+  supervisionNotice: string;
+  newContactApproved: string;
+  newContactDesc: string;
+  sayHello: string;
+  notNow: string;
+  waitingForFriend: string;
+  waitingToSend: string;
+  sentSafely: string;
+  conversationResting: string;
+  askCaregiverHelp: string;
+  helpRequested: string;
+  choosePrompt: string;
+  sendGreeting: string;
+  tapToSend: string;
+  reactions: string;
+  noConversationsYet: string;
+  generateInvite: string;
+  redeemInvite: string;
+  inviteCode: string;
+  enterInviteCode: string;
+  heldMessages: string;
+  releaseToPatient: string;
+  hideFromPatient: string;
+  muteContact: string;
+  unmuteContact: string;
+  emergencyBlock: string;
+  auditTrail: string;
 }
 
 export const translations: Record<LanguageCode, TranslationDictionary> = {
@@ -215,6 +245,36 @@ export const translations: Record<LanguageCode, TranslationDictionary> = {
     prolongedInactivity: 'Prolonged Inactivity Check-in', sosAlertRaised: 'Emergency SOS Raised',
     acknowledge: 'Acknowledge', resolve: 'Resolve', savedOnDevice: 'Saved on this device',
     mahjongBlockedHelp: 'This tile needs one free lateral side and no tile covering it from above.',
+
+    greetings: 'Friends & Greetings',
+    greetingsDesc: 'Caregiver-supervised greetings with approved friends',
+    supervisionNotice: 'Caregivers on both sides can review all messages to keep everyone safe.',
+    newContactApproved: 'New Approved Contact',
+    newContactDesc: 'Your caregivers approved this trusted contact. Would you like to connect?',
+    sayHello: 'Say hello',
+    notNow: 'Not now',
+    waitingForFriend: 'Waiting for your friend to say hello before sending messages.',
+    waitingToSend: 'Waiting to send — your contact and caregivers cannot see this yet.',
+    sentSafely: 'Sent safely',
+    conversationResting: 'This conversation is resting for now.',
+    askCaregiverHelp: 'Ask my caregiver for help',
+    helpRequested: 'Help requested — your caregiver has been notified.',
+    choosePrompt: 'Choose a greeting prompt',
+    sendGreeting: 'Send Greeting',
+    tapToSend: 'Tap to send safely',
+    reactions: 'Safe Reactions',
+    noConversationsYet: 'No approved friends yet. A caregiver can invite contacts from their dashboard.',
+    generateInvite: 'Generate 24-hr Invite Code',
+    redeemInvite: 'Accept / Redeem Invite Code',
+    inviteCode: 'Invite Code',
+    enterInviteCode: 'Enter the 10-character code provided by the other family',
+    heldMessages: 'Held Messages for Review',
+    releaseToPatient: 'Release to Patient',
+    hideFromPatient: 'Hide from Patient',
+    muteContact: 'Mute Contact',
+    unmuteContact: 'Unmute Contact',
+    emergencyBlock: 'Emergency Block',
+    auditTrail: 'Audit Trail',
   },
   Hindi: {
     appTitle: 'स्मृतिNER', appSubtitle: 'याददाश्त, दिनचर्या और स्वास्थ्य सहायता',
@@ -272,6 +332,36 @@ export const translations: Record<LanguageCode, TranslationDictionary> = {
     prolongedInactivity: 'लंबे समय से निष्क्रियता जाँच', sosAlertRaised: 'आपात सहायता सूचना',
     acknowledge: 'स्वीकार करें', resolve: 'समाधान करें', savedOnDevice: 'डिवाइस पर सुरक्षित',
     mahjongBlockedHelp: 'इस टाइल का एक किनारा खुला होना चाहिए और ऊपर कोई अन्य टाइल नहीं होनी चाहिए।',
+
+    greetings: 'मित्र और संदेश',
+    greetingsDesc: 'स्वीकृत मित्रों के साथ देखभालकर्ता-पर्यवेक्षित संदेश',
+    supervisionNotice: 'सभी की सुरक्षा के लिए दोनों पक्षों के देखभालकर्ता सभी संदेश देख सकते हैं।',
+    newContactApproved: 'नया स्वीकृत संपर्क',
+    newContactDesc: 'आपके देखभालकर्ताओं ने इस विश्वसनीय संपर्क को स्वीकृति दी है। क्या आप जुड़ना चाहते हैं?',
+    sayHello: 'नमस्ते कहें',
+    notNow: 'अभी नहीं',
+    waitingForFriend: 'संदेश भेजने से पहले आपके मित्र के नमस्ते कहने की प्रतीक्षा है।',
+    waitingToSend: 'भेजने की प्रतीक्षा में — आपके संपर्क और देखभालकर्ता इसे अभी नहीं देख सकते।',
+    sentSafely: 'सफलतापूर्वक भेजा गया',
+    conversationResting: 'यह बातचीत अभी विश्राम में है।',
+    askCaregiverHelp: 'मेरी देखभालकर्ता से सहायता माँगें',
+    helpRequested: 'सहायता माँगी गई — आपकी देखभालकर्ता को सूचित कर दिया गया है।',
+    choosePrompt: 'अभिवादन संदेश चुनें',
+    sendGreeting: 'संदेश भेजें',
+    tapToSend: 'सुरक्षित रूप से भेजने के लिए दबाएँ',
+    reactions: 'शुभकामना प्रतिक्रिया',
+    noConversationsYet: 'अभी कोई स्वीकृत मित्र नहीं हैं। देखभालकर्ता अपने डैशबोर्ड से संपर्क जोड़ सकते हैं।',
+    generateInvite: '24 घंटे का आमंत्रण कोड बनाएँ',
+    redeemInvite: 'आमंत्रण कोड स्वीकार / दर्ज करें',
+    inviteCode: 'आमंत्रण कोड',
+    enterInviteCode: 'दूसरे परिवार द्वारा दिया गया 10-अक्षरों का कोड दर्ज करें',
+    heldMessages: 'समीक्षा हेतु रोके गए संदेश',
+    releaseToPatient: 'रोगी को दिखाएँ',
+    hideFromPatient: 'रोगी से छिपाएँ',
+    muteContact: 'संपर्क म्यूट करें',
+    unmuteContact: 'म्यूट हटाएँ',
+    emergencyBlock: 'आपातकालीन ब्लॉक',
+    auditTrail: 'ऑडिट इतिहास',
   },
   Assamese: {
     appTitle: 'স্মৃতিNER', appSubtitle: 'স্মৃতি, দৈনন্দিন কাম আৰু সুস্থতাৰ সহায়',
@@ -329,6 +419,36 @@ export const translations: Record<LanguageCode, TranslationDictionary> = {
     prolongedInactivity: 'দীৰ্ঘ সময়ৰ নিষ্ক্ৰিয়তা পৰীক্ষা', sosAlertRaised: 'জৰুৰী সহায়ৰ জাননী',
     acknowledge: 'গ্ৰহণ কৰক', resolve: 'সমাধান কৰক', savedOnDevice: 'এই ডিভাইচত সংৰক্ষিত',
     mahjongBlockedHelp: 'এই টাইলটোৰ এটা কাষ খোলা থাকিব লাগিব আৰু ওপৰত আন কোনো টাইল থাকিব নালাগিব।',
+
+    greetings: 'বন্ধু আৰু সম্ভাষণ',
+    greetingsDesc: 'অনুমোদিত বন্ধুসকলৰ সৈতে তত্ত্বাৱধানত বাৰ্তালাপ',
+    supervisionNotice: 'সকলোৰে সুৰক্ষাৰ বাবে উভয় পক্ষৰ তত্ত্বাৱধায়কে সকলো বাৰ্তা পৰীক্ষা কৰিব পাৰে।',
+    newContactApproved: 'নতুন অনুমোদিত যোগাযোগ',
+    newContactDesc: 'আপোনাৰ তত্ত্বাৱধায়কে এই বিশ্বস্ত যোগাযোগ অনুমোদন কৰিছে। আপুনি সংযোগ কৰিব বিচাৰে নেকি?',
+    sayHello: 'নমস্কাৰ জনাওক',
+    notNow: 'এতিয়া নহয়',
+    waitingForFriend: 'বাৰ্তা পঠোৱাৰ আগতে আপোনাৰ বন্ধুৱে নমস্কাৰ জনোৱালৈ অপেক্ষা কৰা হৈছে।',
+    waitingToSend: 'পঠিয়াবলৈ অপেক্ষাৰত — আপোনাৰ যোগাযোগ বা তত্ত্বাৱধায়কে এতিয়াও ইয়াক দেখা নাই।',
+    sentSafely: 'সুৰক্ষিতভাৱে পঠিওৱা হ’ল',
+    conversationResting: 'এই বাৰ্তালাপ এতিয়া জিৰণিত আছে।',
+    askCaregiverHelp: 'মোৰ তত্ত্বাৱধায়কৰ সহায় বিচৰক',
+    helpRequested: 'সহায় বিচৰা হ’ল — আপোনাৰ তত্ত্বাৱধায়কক জনোৱা হৈছে।',
+    choosePrompt: 'সম্ভাষণ বাৰ্তা বাছক',
+    sendGreeting: 'বাৰ্তা পঠাওক',
+    tapToSend: 'সুৰক্ষিতভাৱে পঠিয়াবলৈ টিপক',
+    reactions: 'মৰমৰ প্ৰতিক্ৰিয়া',
+    noConversationsYet: 'এতিয়াও কোনো অনুমোদিত বন্ধু নাই। তত্ত্বাৱধায়কে নিজৰ ডেশ্বব’ৰ্ডৰ পৰা যোগাযোগ যোগ কৰিব পাৰে।',
+    generateInvite: '২৪ ঘণ্টাৰ নিমন্ত্ৰণ ক’ড তৈয়াৰ কৰক',
+    redeemInvite: 'নিমন্ত্ৰণ ক’ড গ্ৰহণ / ব্যৱহাৰ কৰক',
+    inviteCode: 'নিমন্ত্ৰণ ক’ড',
+    enterInviteCode: 'আনটো পৰিয়ালে দিয়া ১০টা আখৰৰ ক’ডটো লিখক',
+    heldMessages: 'পুনৰীক্ষণৰ বাবে ৰখা বাৰ্তা',
+    releaseToPatient: 'ৰোগীক দেখুৱাওক',
+    hideFromPatient: 'ৰোগীৰ পৰা লুকুৱাওক',
+    muteContact: 'যোগাযোগ বন্ধ ৰাখক',
+    unmuteContact: 'বন্ধ আঁতৰাওক',
+    emergencyBlock: 'জৰুৰী ব্লক',
+    auditTrail: 'অডিট ইতিবৃত্ত',
   },
 };
 

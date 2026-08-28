@@ -24,9 +24,10 @@ import type { JourneyGameSession, ReminiscencePhoto, ReminderItem, VoiceActionId
 import { AlertCoordinator } from '../alerts/AlertCoordinator';
 import { GameSelection } from '../games/GameSelection';
 import { JourneyGame } from '../games/JourneyGame';
+import { GreetingsView } from './GreetingsView';
 import { VoiceAssistModal } from '../voice/VoiceAssistModal';
 
-type View = 'home' | 'games' | 'game' | 'routine';
+type View = 'home' | 'games' | 'game' | 'routine' | 'greetings';
 
 const patientCopy = {
   English: {
@@ -522,6 +523,31 @@ export const PatientHome: React.FC = () => {
         </button>
       </section>
 
+      {/* FRIENDS & GREETINGS HERO CARD */}
+      <section className="overflow-hidden rounded-[2rem] border-2 border-teal-200 bg-white p-5 sm:p-6 shadow-sm hover:shadow-md transition">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-teal-100 text-3xl shadow-inner">
+              💌
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-tea-950">{t.greetings}</h2>
+              <p className="text-sm font-semibold text-stone-600">
+                {t.greetingsDesc}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setView('greetings')}
+            className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-tea-800 px-6 text-lg font-black text-white hover:bg-tea-900 shadow-md transition"
+          >
+            <span>{t.greetings}</span>
+            <ChevronRight className="h-5 w-5" />
+          </button>
+        </div>
+      </section>
+
       {/* Routine Sheet View */}
       {view === 'routine' && (
         <section className="fixed inset-0 z-50 overflow-y-auto bg-[#f8fbf9] p-4">
@@ -595,6 +621,13 @@ export const PatientHome: React.FC = () => {
               })}
             </div>
           </div>
+        </section>
+      )}
+
+      {/* Friends & Greetings View */}
+      {view === 'greetings' && (
+        <section className="fixed inset-0 z-50 overflow-y-auto bg-[#f8fbf9]">
+          <GreetingsView onBack={() => setView('home')} />
         </section>
       )}
 

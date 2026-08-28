@@ -1,10 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
+  ChevronRight,
   Compass,
   CornerUpLeft,
   Flower2,
+  HelpCircle,
   Maximize2,
+  Minimize2,
+  MoreHorizontal,
+  Pause,
   RefreshCw,
   Search,
   Sparkles,
@@ -32,8 +37,11 @@ import {
   shuffleRemainingTiles,
   type MahjongMove,
   type MahjongSavedGame,
+  type MahjongStageSource,
   type MahjongTableFelt,
+  type MahjongTestingState,
   type MahjongThemeId,
+  type MahjongViewPreferences,
   type PlacedTile,
 } from '../../services/mahjongEngine';
 import { TileArtwork } from '../../services/mahjongTilesSvg';
@@ -49,6 +57,9 @@ interface MahjongSolitaireGameProps {
 }
 
 type MenuKey = 'game' | 'move' | 'view' | 'theme' | 'help' | null;
+
+const TEST_MODE_SESSION_KEY = 'smriti_mahjong_test_mode';
+const TEST_SAVE_SESSION_KEY = 'smriti_mahjong_test_save';
 
 export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
   initialStage = 1,
@@ -67,12 +78,60 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     gameProgress,
   } = useApp();
 
-  // State
+  // -----------------------------------------------------------------
+  // 1. TESTING MODE STATE (sessionStorage only, never touches DB)
+  // -----------------------------------------------------------------
+  const [testingState, setTestingState] = useState<MahjongTestingState>(() => {
+    try {
+      const stored = sessionStorage.getItem(TEST_MODE_SESSION_KEY);
+      return {
+        enabled: stored === 'true',
+        effectiveUnlockedStage: stored === 'true' ? 12 : 1,
+      };
+    } catch {
+      return { enabled: false, effectiveUnlockedStage: 1 };
+    }
+  });
+
+  const realUnlockedStage = gameProgress['mahjong_memory']?.unlockedStage || 1;
+  const effectiveUnlockedStage = testingState.enabled ? 12 : realUnlockedStage;
+
+  const toggleTestingMode = (enable: boolean) => {
+    try {
+      sessionStorage.setItem(TEST_MODE_SESSION_KEY, enable ? 'true' : 'false');
+    } catch {
+      // session storage quota fallback
+    }
+    setTestingState({
+      enabled: enable,
+      effectiveUnlockedStage: enable ? 12 : realUnlockedStage,
+    });
+    if (enable) {
+      setViewPrefs((prev) => ({ ...prev, showLayerNumbers: true }));
+      setToastMessage('Testing Mode active: all 12 stages unlocked for this session.');
+    } else {
+      setToastMessage('Testing Mode disabled: standard patient progression restored.');
+    }
+  };
+
+  // -----------------------------------------------------------------
+  // 2. VIEW PREFERENCES & THEMES
+  // -----------------------------------------------------------------
   const [stage, setStage] = useState<number>(savedGame?.stage || initialStage);
   const [themeId, setThemeId] = useState<MahjongThemeId>(savedGame?.themeId || 'ner-heritage');
-  const [tableFelt, setTableFelt] = useState<MahjongTableFelt>(savedGame?.tableFelt || 'sand');
-  const [showFreeHighlights, setShowFreeHighlights] = useState<boolean>(true);
-  const [largePrint, setLargePrint] = useState<boolean>(false);
+  // Default table is Tea Garden Green for optimal ivory tile contrast
+  const [tableFelt, setTableFelt] = useState<MahjongTableFelt>(
+    savedGame?.tableFelt || 'tea-garden'
+  );
+
+  const [viewPrefs, setViewPrefs] = useState<MahjongViewPreferences>({
+    viewMode: 'fit',
+    depthBoost: true,
+    showFreeHighlights: true,
+    showLayerNumbers: testingState.enabled,
+    explainBlockedTiles: true,
+    largePrint: false,
+  });
 
   const layout = useMemo(() => getLayoutForStage(stage), [stage]);
   const [dealSeed, setDealSeed] = useState<string>(savedGame?.dealSeed || `${Date.now()}`);
@@ -101,8 +160,21 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
   const [showTutorial, setShowTutorial] = useState<boolean>(false);
   const [showStageModal, setShowStageModal] = useState<boolean>(false);
   const [showNoMovesModal, setShowNoMovesModal] = useState<boolean>(false);
+  const [showShuffleConfirmModal, setShowShuffleConfirmModal] = useState<boolean>(false);
+  const [showMobileMoreSheet, setShowMobileMoreSheet] = useState<boolean>(false);
+  const [showMiniMap, setShowMiniMap] = useState<boolean>(true);
+  const [showLegend, setShowLegend] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('smriti_mahjong_legend_seen') !== 'true';
+    } catch {
+      return true;
+    }
+  });
+
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Blocked tile diagnostics
   const [blockedHighlights, setBlockedHighlights] = useState<{
     targetId: string;
     covererIds: string[];
@@ -112,17 +184,81 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
   const [hintedPair, setHintedPair] = useState<[string, string] | null>(null);
   const [matchingAnimation, setMatchingAnimation] = useState<[string, string] | null>(null);
 
-  // Camera & Viewport
+  // -----------------------------------------------------------------
+  // 3. REAL VIEWPORT CAMERA & FIT ENGINE
+  // -----------------------------------------------------------------
+  // Dimensional base sizes
+  const tileFaceWidth = 62;
+  const tileFaceHeight = 80;
+  const halfX = tileFaceWidth / 2; // 31px
+  const halfY = tileFaceHeight / 2; // 40px
+  const layerShift = viewPrefs.depthBoost ? 10 : 8; // 8px (or 10px with depth boost)
+  const depthRight = 7;
+  const depthBottom = 8;
+
+  // Complete board physical bounds
+  const boardTotalWidth =
+    (layout.cameraBounds.maxX + 1) * halfX + layout.maxLayers * layerShift + depthRight + 48;
+  const boardTotalHeight =
+    (layout.cameraBounds.maxY + 1) * halfY + layout.maxLayers * layerShift + depthBottom + 48;
+
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
+    width: 800,
+    height: 600,
+  });
+
+  const viewportRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef<boolean>(false);
-  const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number }>({
+  const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number; moved: boolean }>({
     x: 0,
     y: 0,
     panX: 0,
     panY: 0,
+    moved: false,
   });
-  const viewportRef = useRef<HTMLDivElement>(null);
+
+  // Calculate real fitScale
+  const fitScale = useMemo(() => {
+    const availW = Math.max(300, viewportSize.width - 32);
+    const availH = Math.max(300, viewportSize.height - 32);
+    return Math.min(1.4, Math.max(0.35, Math.min(availW / boardTotalWidth, availH / boardTotalHeight)));
+  }, [viewportSize, boardTotalWidth, boardTotalHeight]);
+
+  // Recalculate camera on viewport changes or viewMode switch
+  const fitBoardToView = (mode: 'fit' | 'comfort' = viewPrefs.viewMode) => {
+    if (mode === 'fit') {
+      setZoom(fitScale);
+      setPan({ x: 0, y: 0 });
+    } else {
+      // Comfort view: maintain tiles at easily readable & tappable size (zoom >= 1.0)
+      const comfortTarget = Math.max(1.0, fitScale * 1.35);
+      setZoom(comfortTarget);
+      setPan({ x: 0, y: 0 });
+    }
+  };
+
+  // ResizeObserver on table viewport
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          setViewportSize({ width, height });
+        }
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Recalculate on stage / fitScale change
+  useEffect(() => {
+    fitBoardToView(viewPrefs.viewMode);
+  }, [stage, fitScale, viewPrefs.viewMode]);
 
   useEffect(() => {
     setGameActive(true);
@@ -132,7 +268,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
   // Toast timer
   useEffect(() => {
     if (!toastMessage) return;
-    const t = setTimeout(() => setToastMessage(null), 3500);
+    const t = setTimeout(() => setToastMessage(null), 3200);
     return () => clearTimeout(t);
   }, [toastMessage]);
 
@@ -154,7 +290,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
   const activeTiles = useMemo(() => tiles.filter((t) => t.active), [tiles]);
   const availableMatches = useMemo(() => getAvailableMatches(tiles), [tiles]);
 
-  // Check for dead ends
+  // Dead-end detection
   useEffect(() => {
     if (activeTiles.length > 0 && availableMatches.length === 0 && !matchingAnimation) {
       const timer = setTimeout(() => {
@@ -165,9 +301,10 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     }
   }, [activeTiles.length, availableMatches.length, matchingAnimation]);
 
-  // Auto-save debounced
+  // Auto-save logic (isolated when testing)
   useEffect(() => {
     if (!currentPatient || isCompleted || activeTiles.length === 0) return;
+
     const saveState: MahjongSavedGame = {
       patientId: currentPatient.id,
       stage,
@@ -188,6 +325,17 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
       revision: Date.now(),
     };
 
+    if (testingState.enabled) {
+      // In test mode: Save only to session storage test key
+      try {
+        sessionStorage.setItem(TEST_SAVE_SESSION_KEY, JSON.stringify(saveState));
+      } catch {
+        // session storage fallback
+      }
+      return;
+    }
+
+    // Normal patient session auto-save
     try {
       localStorage.setItem(`smriti-mahjong-save-${currentPatient.id}`, JSON.stringify(saveState));
     } catch {
@@ -217,10 +365,13 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     startedAt,
     isCompleted,
     activeTiles.length,
+    testingState.enabled,
     onSaveGame,
   ]);
 
-  // Handle tile click
+  // -----------------------------------------------------------------
+  // 4. INTERACTION HANDLERS
+  // -----------------------------------------------------------------
   const handleTileClick = (tile: PlacedTile) => {
     if (!tile.active || matchingAnimation) return;
 
@@ -244,16 +395,29 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
         rightIds: rightBlockers,
       });
 
-      if (covered) {
-        setToastMessage('This tile is covered from above. Clear the top layer first.');
-      } else if (leftB && rightB) {
-        setToastMessage('This tile is blocked on both sides. Free at least one side.');
+      if (viewPrefs.explainBlockedTiles) {
+        let msg = '';
+        if (covered && (leftB || rightB)) {
+          msg = 'Clear the top tile and open one side.';
+        } else if (covered) {
+          msg = 'This tile has another tile above it.';
+        } else {
+          msg = 'Free the left or right side first.';
+        }
+        setToastMessage(msg);
+        if (speechSupported) {
+          readAloud(msg);
+        }
       }
       return;
     }
 
-    // Play tile pick click
-    audioManager.play('tile-pick');
+    // Play tile pick click (richer pitch for upper layer tiles)
+    if (tile.z > 1) {
+      audioManager.play('tap');
+    } else {
+      audioManager.play('tile-pick');
+    }
 
     // If no tile currently selected
     if (!selectedTileId) {
@@ -280,7 +444,6 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
       audioManager.play('pair-match');
 
       setTimeout(() => {
-        // Record move
         const move: MahjongMove = {
           type: 'match',
           removedPair: [firstTile, tile],
@@ -319,6 +482,16 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
   const handleBoardComplete = (_finalTiles: PlacedTile[]) => {
     setIsCompleted(true);
     audioManager.play('journey-complete');
+
+    if (testingState.enabled) {
+      // In Testing Mode: Never alter real patient progress, DB, or rewards
+      try {
+        sessionStorage.removeItem(TEST_SAVE_SESSION_KEY);
+      } catch {
+        // session storage cleanup
+      }
+      return;
+    }
 
     if (onClearSave && currentPatient) {
       void onClearSave();
@@ -359,7 +532,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
       startedAt,
       completedAt: new Date().toISOString(),
       clientEventId: crypto.randomUUID(),
-      stageSource: 'recommended',
+      stageSource: (testingState.enabled ? 'test' : 'recommended') as MahjongStageSource,
     };
 
     void onComplete(session);
@@ -391,7 +564,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     setShowNoMovesModal(false);
   };
 
-  // Hint
+  // Hint with camera auto-frame
   const handleHint = () => {
     if (!availableMatches.length) {
       setToastMessage('No free matches available right now. Tap Shuffle to rearrange.');
@@ -404,10 +577,19 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     setHintedPair([match[0].instanceId, match[1].instanceId]);
     const id1 = getIdentity(match[0].identityId);
     setToastMessage(`Hint: Match available: ${id1.nerName[selectedLanguage] || id1.nerName.English}`);
+
+    // If tiles are outside comfortable viewport, frame them smoothly
+    if (viewPrefs.viewMode === 'comfort') {
+      const midX = ((match[0].x + match[1].x) / 2) * halfX;
+      const midY = ((match[0].y + match[1].y) / 2) * halfY;
+      const targetPanX = -midX + viewportSize.width / 4;
+      const targetPanY = -midY + viewportSize.height / 4;
+      setPan({ x: targetPanX, y: targetPanY });
+    }
   };
 
-  // Shuffle remaining active tiles
-  const handleShuffle = () => {
+  // Shuffle handler (checks if matches still exist to prompt confirmation)
+  const triggerShuffle = () => {
     setShuffleCount((prev) => prev + 1);
     audioManager.play('tap');
 
@@ -422,7 +604,16 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     setMoveHistory((prev) => [...prev, move]);
     setSelectedTileId(undefined);
     setShowNoMovesModal(false);
-    setToastMessage('Tiles rearranged! Free matches are now available.');
+    setShowShuffleConfirmModal(false);
+    setToastMessage('Tiles rearranged! Fresh matches are now available.');
+  };
+
+  const handleShuffleRequest = () => {
+    if (availableMatches.length > 0) {
+      setShowShuffleConfirmModal(true);
+    } else {
+      triggerShuffle();
+    }
   };
 
   // Restart deal
@@ -432,6 +623,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     setMoveHistory([]);
     setPairsCleared(0);
     setShowNoMovesModal(false);
+    setShowShuffleConfirmModal(false);
     setIsPaused(false);
     audioManager.play('tap');
   };
@@ -451,35 +643,38 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     setBlockedTapCount(0);
     setShuffleCount(0);
     setShowNoMovesModal(false);
+    setShowShuffleConfirmModal(false);
     setShowStageModal(false);
     setIsPaused(false);
     setIsCompleted(false);
     audioManager.play('tap');
   };
 
-  // Table felt styling
+  const dismissLegend = () => {
+    setShowLegend(false);
+    try {
+      localStorage.setItem('smriti_mahjong_legend_seen', 'true');
+    } catch {
+      // storage fallback
+    }
+  };
+
+  // -----------------------------------------------------------------
+  // 5. THEME & FELT STYLING
+  // -----------------------------------------------------------------
   const tableFeltClass =
     tableFelt === 'tea-garden'
-      ? 'bg-[#1b4332] text-white'
+      ? 'bg-[#143d2b] text-emerald-50'
       : tableFelt === 'brahmaputra-dusk'
-      ? 'bg-[#1e293b] text-white'
+      ? 'bg-[#182335] text-slate-100'
       : tableFelt === 'high-contrast'
-      ? 'bg-[#0f172a] text-white'
-      : 'bg-[#d8c3a5] text-stone-900'; // Classic Sand felt
+      ? 'bg-[#090d16] text-white'
+      : 'bg-[#cfb99b] text-stone-950';
 
-  // Tile dimensions
-  const tileWidth = 56;
-  const tileHeight = 72;
-  const halfX = tileWidth / 2;
-  const halfY = tileHeight / 2;
-
-  // Board layout bounds
-  const boardPixelWidth = (layout.cameraBounds.maxX + 2) * halfX + layout.maxLayers * 6;
-  const boardPixelHeight = (layout.cameraBounds.maxY + 2) * halfY + layout.maxLayers * 6;
-
-  // Camera panning handlers
+  // -----------------------------------------------------------------
+  // 6. POINTER PANNING & DRAGGING
+  // -----------------------------------------------------------------
   const onPointerDown = (e: React.PointerEvent) => {
-    // Only pan if clicking table background
     if ((e.target as HTMLElement).closest('.mahjong-tile-btn')) return;
     isDraggingRef.current = true;
     dragStartRef.current = {
@@ -487,6 +682,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
       y: e.clientY,
       panX: pan.x,
       panY: pan.y,
+      moved: false,
     };
   };
 
@@ -494,14 +690,27 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
     if (!isDraggingRef.current) return;
     const dx = e.clientX - dragStartRef.current.x;
     const dy = e.clientY - dragStartRef.current.y;
-    setPan({
-      x: dragStartRef.current.panX + dx,
-      y: dragStartRef.current.panY + dy,
-    });
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+      dragStartRef.current.moved = true;
+    }
+
+    // Clamp pan bounds so the board cannot be lost outside the viewport
+    const maxPanX = boardTotalWidth * zoom * 0.8;
+    const maxPanY = boardTotalHeight * zoom * 0.8;
+    const nextX = Math.max(-maxPanX, Math.min(maxPanX, dragStartRef.current.panX + dx));
+    const nextY = Math.max(-maxPanY, Math.min(maxPanY, dragStartRef.current.panY + dy));
+
+    setPan({ x: nextX, y: nextY });
   };
 
   const onPointerUp = () => {
     isDraggingRef.current = false;
+  };
+
+  const onDoubleClick = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.mahjong-tile-btn')) return;
+    // Double click recenters
+    setPan({ x: 0, y: 0 });
   };
 
   return (
@@ -510,25 +719,41 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onDoubleClick={onDoubleClick}
     >
       {/* ------------------------------------------------------------- */}
-      {/* 1. VINTAGE TITLE BAR (48px)                                  */}
+      {/* 1. VISIBLE HEADER BAR (56px)                                  */}
       {/* ------------------------------------------------------------- */}
-      <header className="shrink-0 flex h-12 items-center justify-between border-b border-stone-800/20 bg-gradient-to-b from-[#2d6a4f]/90 to-[#1b4332]/90 px-3 text-white shadow-md backdrop-blur-md">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-lg shadow-sm text-emerald-950 font-black">
+      <header className="shrink-0 flex h-14 items-center justify-between border-b border-black/20 bg-gradient-to-b from-[#1b4332]/95 to-[#0e2a1e]/95 px-3 text-white shadow-md backdrop-blur-md z-40">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-2xl shadow-sm text-emerald-950 font-black shrink-0">
             🀄
           </span>
-          <div className="min-w-0 flex items-center gap-2 text-sm font-black">
-            <span className="truncate">Smriti Mahjong</span>
-            <span className="text-emerald-300">·</span>
-            <span className="text-emerald-200 truncate font-semibold">
-              Stage {stage}: {layout.name[selectedLanguage] || layout.name.English}
+          <div className="min-w-0 flex items-center gap-1.5 sm:gap-2">
+            <span className="text-base sm:text-lg font-black tracking-tight truncate">
+              Smriti Mahjong
             </span>
+            <span className="text-emerald-300 font-bold">·</span>
+            <button
+              onClick={() => setShowStageModal(true)}
+              className="text-xs sm:text-sm font-bold text-amber-200 hover:text-amber-100 truncate hover:underline flex items-center gap-1"
+            >
+              <span>
+                Stage {stage}: {layout.name[selectedLanguage] || layout.name.English}
+              </span>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
           </div>
+
+          {/* Testing Mode Active Badge */}
+          {testingState.enabled && (
+            <span className="ml-1.5 hidden sm:inline-flex items-center gap-1 rounded-full bg-amber-400 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-amber-950 shadow-sm animate-pulse">
+              <Sparkles className="h-3 w-3" /> TEST · ALL STAGES
+            </span>
+          )}
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {speechSupported && (
             <button
               onClick={() =>
@@ -536,50 +761,53 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                   `Mahjong Solitaire, Stage ${stage}, ${layout.name.English}. ${activeTiles.length} tiles left, ${availableMatches.length} matches available.`
                 )
               }
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 transition"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 transition"
               aria-label="Read status aloud"
             >
-              <Volume2 className="h-4 w-4 text-emerald-100" />
+              <Volume2 className="h-5 w-5 text-emerald-100" />
             </button>
           )}
+
           <button
             onClick={() => setIsPaused(true)}
-            className="h-9 px-3 rounded-lg border border-white/20 bg-white/10 text-xs font-bold hover:bg-white/20 transition"
+            className="flex min-h-11 items-center justify-center gap-1.5 px-3.5 rounded-xl border border-white/20 bg-white/10 text-xs sm:text-sm font-bold hover:bg-white/20 transition"
           >
-            Pause
+            <Pause className="h-4 w-4" />
+            <span className="hidden sm:inline">Pause</span>
           </button>
+
           <button
             onClick={onBack}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-white/10 hover:bg-rose-900/80 transition"
+            className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-white/10 hover:bg-rose-900/80 transition"
             aria-label="Exit Game"
           >
-            <X className="h-4 w-4 text-white" />
+            <X className="h-5 w-5 text-white" />
           </button>
         </div>
       </header>
 
       {/* ------------------------------------------------------------- */}
-      {/* 2. CLASSIC DROP-DOWN MENU BAR (Desktop 40px)                  */}
+      {/* 2. DESKTOP TEXT MENU BAR (48px)                               */}
       {/* ------------------------------------------------------------- */}
-      <nav className="shrink-0 hidden sm:flex h-10 items-center gap-1 border-b border-stone-800/10 bg-white/95 px-3 text-xs font-black text-stone-800 shadow-sm relative z-40">
+      <nav className="shrink-0 hidden md:flex h-12 items-center gap-1 border-b border-black/10 bg-white/95 px-4 text-sm font-black text-stone-800 shadow-sm relative z-30">
         {/* Game Menu */}
         <div className="relative">
           <button
             onClick={() => setActiveMenu(activeMenu === 'game' ? null : 'game')}
-            className={`px-3 py-1.5 rounded-md hover:bg-stone-200 transition ${
+            className={`px-3.5 py-2 rounded-lg hover:bg-stone-200 transition ${
               activeMenu === 'game' ? 'bg-stone-200' : ''
             }`}
           >
             Game
           </button>
           {activeMenu === 'game' && (
-            <div className="absolute left-0 top-full mt-1 w-48 rounded-xl border border-stone-300 bg-white p-1.5 shadow-xl text-xs font-bold text-stone-900">
+            <div className="absolute left-0 top-full mt-1.5 w-60 rounded-2xl border border-stone-300 bg-white p-2 shadow-2xl text-sm font-bold text-stone-900 z-50">
               <button
                 onClick={() => {
                   handleNewDeal();
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100"
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100"
               >
                 New Deal
               </button>
@@ -588,7 +816,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                   handleRestartDeal();
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100"
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100"
               >
                 Restart This Deal
               </button>
@@ -597,17 +825,18 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                   setShowStageModal(true);
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100"
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
               >
-                Choose Stage (1–12)
+                <span>Choose Stage (1–12)</span>
+                <ChevronRight className="h-4 w-4 text-stone-400" />
               </button>
-              <hr className="my-1 border-stone-200" />
+              <hr className="my-1.5 border-stone-200" />
               <button
                 onClick={() => {
                   setActiveMenu(null);
                   onBack();
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg text-rose-700 hover:bg-rose-50"
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl text-rose-700 hover:bg-rose-50"
               >
                 Save & Exit
               </button>
@@ -619,41 +848,41 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
         <div className="relative">
           <button
             onClick={() => setActiveMenu(activeMenu === 'move' ? null : 'move')}
-            className={`px-3 py-1.5 rounded-md hover:bg-stone-200 transition ${
+            className={`px-3.5 py-2 rounded-lg hover:bg-stone-200 transition ${
               activeMenu === 'move' ? 'bg-stone-200' : ''
             }`}
           >
             Move
           </button>
           {activeMenu === 'move' && (
-            <div className="absolute left-0 top-full mt-1 w-48 rounded-xl border border-stone-300 bg-white p-1.5 shadow-xl text-xs font-bold text-stone-900">
+            <div className="absolute left-0 top-full mt-1.5 w-60 rounded-2xl border border-stone-300 bg-white p-2 shadow-2xl text-sm font-bold text-stone-900 z-50">
               <button
                 disabled={!moveHistory.length}
                 onClick={() => {
                   handleUndo();
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 disabled:opacity-40"
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 disabled:opacity-40"
               >
-                Undo (U)
+                Undo Move
               </button>
               <button
                 onClick={() => {
                   handleHint();
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100"
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100"
               >
-                Hint (H)
+                Hint
               </button>
               <button
                 onClick={() => {
-                  handleShuffle();
+                  handleShuffleRequest();
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100"
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100"
               >
-                Shuffle Remaining
+                Shuffle Remaining Tiles
               </button>
             </div>
           )}
@@ -663,44 +892,86 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
         <div className="relative">
           <button
             onClick={() => setActiveMenu(activeMenu === 'view' ? null : 'view')}
-            className={`px-3 py-1.5 rounded-md hover:bg-stone-200 transition ${
+            className={`px-3.5 py-2 rounded-lg hover:bg-stone-200 transition ${
               activeMenu === 'view' ? 'bg-stone-200' : ''
             }`}
           >
             View
           </button>
           {activeMenu === 'view' && (
-            <div className="absolute left-0 top-full mt-1 w-52 rounded-xl border border-stone-300 bg-white p-1.5 shadow-xl text-xs font-bold text-stone-900">
+            <div className="absolute left-0 top-full mt-1.5 w-72 rounded-2xl border border-stone-300 bg-white p-2 shadow-2xl text-sm font-bold text-stone-900 z-50">
               <button
                 onClick={() => {
-                  setZoom(1);
-                  setPan({ x: 0, y: 0 });
+                  setViewPrefs((p) => ({ ...p, viewMode: 'fit' }));
+                  fitBoardToView('fit');
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 flex items-center justify-between"
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
               >
-                <span>Fit Board</span>
-                <Maximize2 className="h-3.5 w-3.5 text-stone-500" />
+                <span>Fit Overview (Full Board)</span>
+                {viewPrefs.viewMode === 'fit' && <Check className="h-4 w-4 text-emerald-700" />}
               </button>
               <button
                 onClick={() => {
-                  setShowFreeHighlights((v) => !v);
+                  setViewPrefs((p) => ({ ...p, viewMode: 'comfort' }));
+                  fitBoardToView('comfort');
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 flex items-center justify-between"
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
               >
-                <span>Highlight Free Tiles</span>
-                {showFreeHighlights && <Check className="h-3.5 w-3.5 text-emerald-700" />}
+                <span>Comfort View (Large Tiles)</span>
+                {viewPrefs.viewMode === 'comfort' && <Check className="h-4 w-4 text-emerald-700" />}
+              </button>
+              <hr className="my-1.5 border-stone-200" />
+              <button
+                onClick={() => {
+                  setViewPrefs((p) => ({ ...p, depthBoost: !p.depthBoost }));
+                  setActiveMenu(null);
+                }}
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
+              >
+                <span>Depth Boost (3D Shift)</span>
+                {viewPrefs.depthBoost && <Check className="h-4 w-4 text-emerald-700" />}
               </button>
               <button
                 onClick={() => {
-                  setLargePrint((v) => !v);
+                  setViewPrefs((p) => ({ ...p, showFreeHighlights: !p.showFreeHighlights }));
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 flex items-center justify-between"
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
+              >
+                <span>Highlight Playable Tiles</span>
+                {viewPrefs.showFreeHighlights && <Check className="h-4 w-4 text-emerald-700" />}
+              </button>
+              <button
+                onClick={() => {
+                  setViewPrefs((p) => ({ ...p, showLayerNumbers: !p.showLayerNumbers }));
+                  setActiveMenu(null);
+                }}
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
+              >
+                <span>Show Layer Numbers (L1–L6)</span>
+                {viewPrefs.showLayerNumbers && <Check className="h-4 w-4 text-emerald-700" />}
+              </button>
+              <button
+                onClick={() => {
+                  setViewPrefs((p) => ({ ...p, largePrint: !p.largePrint }));
+                  setActiveMenu(null);
+                }}
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
               >
                 <span>Large Print Numbers</span>
-                {largePrint && <Check className="h-3.5 w-3.5 text-emerald-700" />}
+                {viewPrefs.largePrint && <Check className="h-4 w-4 text-emerald-700" />}
+              </button>
+              <button
+                onClick={() => {
+                  setShowMiniMap((v) => !v);
+                  setActiveMenu(null);
+                }}
+                className="w-full text-left min-h-12 px-3 py-2.5 rounded-xl hover:bg-stone-100 flex items-center justify-between"
+              >
+                <span>Mini Overview Map</span>
+                {showMiniMap && <Check className="h-4 w-4 text-emerald-700" />}
               </button>
             </div>
           )}
@@ -710,15 +981,15 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
         <div className="relative">
           <button
             onClick={() => setActiveMenu(activeMenu === 'theme' ? null : 'theme')}
-            className={`px-3 py-1.5 rounded-md hover:bg-stone-200 transition ${
+            className={`px-3.5 py-2 rounded-lg hover:bg-stone-200 transition ${
               activeMenu === 'theme' ? 'bg-stone-200' : ''
             }`}
           >
             Theme
           </button>
           {activeMenu === 'theme' && (
-            <div className="absolute left-0 top-full mt-1 w-56 rounded-xl border border-stone-300 bg-white p-1.5 shadow-xl text-xs font-bold text-stone-900">
-              <p className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-stone-400">
+            <div className="absolute left-0 top-full mt-1.5 w-64 rounded-2xl border border-stone-300 bg-white p-2 shadow-2xl text-sm font-bold text-stone-900 z-50">
+              <p className="px-3 py-1 text-[11px] font-black uppercase tracking-wider text-stone-400">
                 Tile Artwork
               </p>
               <button
@@ -726,55 +997,55 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                   setThemeId('ner-heritage');
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 flex items-center justify-between"
+                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
               >
                 <span>NER Heritage Tiles</span>
-                {themeId === 'ner-heritage' && <Check className="h-3.5 w-3.5 text-emerald-700" />}
+                {themeId === 'ner-heritage' && <Check className="h-4 w-4 text-emerald-700" />}
               </button>
               <button
                 onClick={() => {
                   setThemeId('classic-ivory');
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 flex items-center justify-between"
+                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
               >
                 <span>Classic Ivory Tiles</span>
-                {themeId === 'classic-ivory' && <Check className="h-3.5 w-3.5 text-emerald-700" />}
+                {themeId === 'classic-ivory' && <Check className="h-4 w-4 text-emerald-700" />}
               </button>
-              <hr className="my-1 border-stone-200" />
-              <p className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-stone-400">
+              <hr className="my-1.5 border-stone-200" />
+              <p className="px-3 py-1 text-[11px] font-black uppercase tracking-wider text-stone-400">
                 Table Felt
               </p>
-              <button
-                onClick={() => {
-                  setTableFelt('sand');
-                  setActiveMenu(null);
-                }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 flex items-center justify-between"
-              >
-                <span>Sand Felt</span>
-                {tableFelt === 'sand' && <Check className="h-3.5 w-3.5 text-emerald-700" />}
-              </button>
               <button
                 onClick={() => {
                   setTableFelt('tea-garden');
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 flex items-center justify-between"
+                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
               >
-                <span>Tea Garden Green</span>
-                {tableFelt === 'tea-garden' && <Check className="h-3.5 w-3.5 text-emerald-700" />}
+                <span>Tea Garden Green (Default)</span>
+                {tableFelt === 'tea-garden' && <Check className="h-4 w-4 text-emerald-700" />}
+              </button>
+              <button
+                onClick={() => {
+                  setTableFelt('sand');
+                  setActiveMenu(null);
+                }}
+                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
+              >
+                <span>Classic Sand Felt</span>
+                {tableFelt === 'sand' && <Check className="h-4 w-4 text-emerald-700" />}
               </button>
               <button
                 onClick={() => {
                   setTableFelt('brahmaputra-dusk');
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 flex items-center justify-between"
+                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
               >
                 <span>Brahmaputra Dusk</span>
                 {tableFelt === 'brahmaputra-dusk' && (
-                  <Check className="h-3.5 w-3.5 text-emerald-700" />
+                  <Check className="h-4 w-4 text-emerald-700" />
                 )}
               </button>
               <button
@@ -782,10 +1053,10 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                   setTableFelt('high-contrast');
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 flex items-center justify-between"
+                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
               >
                 <span>High Contrast Charcoal</span>
-                {tableFelt === 'high-contrast' && <Check className="h-3.5 w-3.5 text-emerald-700" />}
+                {tableFelt === 'high-contrast' && <Check className="h-4 w-4 text-emerald-700" />}
               </button>
             </div>
           )}
@@ -795,50 +1066,107 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
         <div className="relative">
           <button
             onClick={() => setActiveMenu(activeMenu === 'help' ? null : 'help')}
-            className={`px-3 py-1.5 rounded-md hover:bg-stone-200 transition ${
+            className={`px-3.5 py-2 rounded-lg hover:bg-stone-200 transition ${
               activeMenu === 'help' ? 'bg-stone-200' : ''
             }`}
           >
             Help
           </button>
           {activeMenu === 'help' && (
-            <div className="absolute left-0 top-full mt-1 w-48 rounded-xl border border-stone-300 bg-white p-1.5 shadow-xl text-xs font-bold text-stone-900">
+            <div className="absolute left-0 top-full mt-1.5 w-64 rounded-2xl border border-stone-300 bg-white p-2 shadow-2xl text-sm font-bold text-stone-900 z-50">
               <button
                 onClick={() => {
                   setShowTutorial(true);
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100"
+                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100"
               >
                 How to Play (Tutorial)
               </button>
               <button
                 onClick={() => {
-                  setToastMessage('A tile is free when uncovered and open on its left or right side.');
+                  setViewPrefs((p) => ({
+                    ...p,
+                    explainBlockedTiles: !p.explainBlockedTiles,
+                  }));
                   setActiveMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100"
+                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100 flex items-center justify-between"
               >
-                What makes a tile free?
+                <span>Explain Blocked Tiles</span>
+                {viewPrefs.explainBlockedTiles && (
+                  <Check className="h-4 w-4 text-emerald-700" />
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setShowLegend(true);
+                  setActiveMenu(null);
+                }}
+                className="w-full text-left min-h-12 px-3 py-2 rounded-xl hover:bg-stone-100"
+              >
+                Show Tile States Legend
               </button>
             </div>
           )}
         </div>
+
+        {/* Quick Camera Buttons */}
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            onClick={() => {
+              const nextMode = viewPrefs.viewMode === 'fit' ? 'comfort' : 'fit';
+              setViewPrefs((p) => ({ ...p, viewMode: nextMode }));
+              fitBoardToView(nextMode);
+            }}
+            className="px-3 py-1.5 rounded-lg border border-stone-300 bg-stone-50 hover:bg-stone-100 text-xs font-black text-stone-700 transition flex items-center gap-1.5"
+          >
+            {viewPrefs.viewMode === 'fit' ? (
+              <>
+                <Minimize2 className="h-3.5 w-3.5 text-teal-700" /> Comfort View
+              </>
+            ) : (
+              <>
+                <Maximize2 className="h-3.5 w-3.5 text-teal-700" /> Fit Overview
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => setZoom((z) => Math.min(2.0, z + 0.15))}
+            className="h-8 w-8 rounded-lg border border-stone-300 bg-stone-50 hover:bg-stone-100 flex items-center justify-center text-stone-700"
+            aria-label="Zoom in"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setZoom((z) => Math.max(0.4, z - 0.15))}
+            className="h-8 w-8 rounded-lg border border-stone-300 bg-stone-50 hover:bg-stone-100 flex items-center justify-center text-stone-700"
+            aria-label="Zoom out"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setPan({ x: 0, y: 0 })}
+            className="px-2.5 py-1.5 rounded-lg border border-stone-300 bg-stone-50 hover:bg-stone-100 text-xs font-black text-stone-700"
+          >
+            Recenter
+          </button>
+        </div>
       </nav>
 
       {/* ------------------------------------------------------------- */}
-      {/* 3. MAIN MAHJONG TABLE AREA (Viewport & 3D Layered Tiles)       */}
+      {/* 3. MAIN MAHJONG TABLE AREA (3D Isometric Extrusion & Stacking) */}
       {/* ------------------------------------------------------------- */}
       <main
         ref={viewportRef}
-        className="relative flex-1 overflow-hidden cursor-grab active:cursor-grabbing flex items-center justify-center p-4"
+        className="relative flex-1 overflow-hidden cursor-grab active:cursor-grabbing flex items-center justify-center p-2 sm:p-4"
       >
-        {/* Board Canvas with Transformation */}
+        {/* Board Canvas with True Transformation */}
         <div
           className="relative transition-transform duration-75 origin-center"
           style={{
-            width: `${boardPixelWidth}px`,
-            height: `${boardPixelHeight}px`,
+            width: `${boardTotalWidth}px`,
+            height: `${boardTotalHeight}px`,
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           }}
         >
@@ -851,20 +1179,41 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
             const isHinted = hintedPair?.includes(tile.instanceId);
             const isMatching = matchingAnimation?.includes(tile.instanceId);
 
-            // Blocked outline feedback
+            // Blocked diagnostic feedback
             const isTargetBlocked = blockedHighlights?.targetId === tile.instanceId;
             const isCoverer = blockedHighlights?.covererIds.includes(tile.instanceId);
             const isSideBlocker =
               blockedHighlights?.leftIds.includes(tile.instanceId) ||
               blockedHighlights?.rightIds.includes(tile.instanceId);
 
-            // 3D Layer Elevation (each higher z shifts 4px up, 4px right)
-            const elevationX = tile.z * 4;
-            const elevationY = -tile.z * 4;
-            const pixelX = tile.x * halfX + elevationX;
-            const pixelY = tile.y * halfY + elevationY;
+            // 3D Layer Elevation: +8px right, -8px up per layer z
+            const elevationX = tile.z * layerShift;
+            const elevationY = -tile.z * layerShift;
+            const pixelX = tile.x * halfX + elevationX + 24;
+            const pixelY = tile.y * halfY + elevationY + 24;
 
-            const zIndex = tile.z * 100 + Math.floor(tile.y) * 10 + Math.floor(tile.x);
+            // Collision-safe z-index formula: higher layer always renders above lower layer!
+            // Clicking a blocked lower tile NEVER elevates its z-index above its covering tile.
+            const naturalZIndex =
+              tile.z * 1000 + Math.floor(tile.y) * 20 + Math.floor(tile.x);
+            const zIndex =
+              isSelected && isFree
+                ? 9000
+                : isMatching
+                ? 9500
+                : isCoverer
+                ? naturalZIndex + 50
+                : naturalZIndex;
+
+            // Shadow intensity proportional to layer
+            const shadowIntensity =
+              tile.z === 0
+                ? 'shadow-[2px_4px_6px_rgba(0,0,0,0.3)]'
+                : tile.z === 1
+                ? 'shadow-[4px_7px_10px_rgba(0,0,0,0.38)]'
+                : tile.z === 2
+                ? 'shadow-[6px_10px_14px_rgba(0,0,0,0.45)]'
+                : 'shadow-[8px_14px_20px_rgba(0,0,0,0.55)]';
 
             return (
               <button
@@ -875,47 +1224,93 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                   e.stopPropagation();
                   handleTileClick(tile);
                 }}
-                className={`mahjong-tile-btn absolute rounded-lg transition-all duration-200 cursor-pointer ${
-                  isSelected
-                    ? '-translate-y-2 ring-4 ring-amber-400 ring-offset-2 shadow-2xl scale-105 z-[999]'
+                className={`mahjong-tile-btn absolute rounded-[7px] transition-all duration-150 cursor-pointer ${
+                  isSelected && isFree
+                    ? '-translate-y-2 scale-[1.04] ring-4 ring-amber-400 ring-offset-2 z-[9000]'
                     : isHinted
-                    ? 'ring-4 ring-emerald-400 animate-pulse z-[990]'
+                    ? 'ring-4 ring-emerald-400 animate-pulse'
                     : isMatching
-                    ? 'scale-110 opacity-60 z-[999]'
+                    ? 'scale-110 opacity-70'
                     : isCoverer
-                    ? 'ring-4 ring-sky-500 z-[980]'
+                    ? 'ring-4 ring-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.6)]'
                     : isSideBlocker
-                    ? 'ring-4 ring-amber-500 z-[980]'
+                    ? 'ring-4 ring-amber-500'
                     : isTargetBlocked
-                    ? 'animate-shake z-[980]'
-                    : isFree && showFreeHighlights
+                    ? 'animate-shake'
+                    : isFree && viewPrefs.showFreeHighlights
                     ? 'hover:brightness-105'
-                    : 'opacity-90 grayscale-[25%]'
+                    : ''
                 }`}
                 style={{
                   left: `${pixelX}px`,
                   top: `${pixelY}px`,
-                  width: `${tileWidth}px`,
-                  height: `${tileHeight}px`,
-                  zIndex: isSelected || isMatching ? 999 : zIndex,
+                  width: `${tileFaceWidth}px`,
+                  height: `${tileFaceHeight}px`,
+                  zIndex,
                 }}
                 aria-label={`${identity.nerName[selectedLanguage] || identity.nerName.English}, ${
                   isFree ? 'free tile' : 'blocked'
-                }, layer ${tile.z + 1}`}
+                }, Layer ${tile.z + 1}`}
               >
-                {/* 3D Tile Bevel Structure */}
-                <div className="relative w-full h-full rounded-lg bg-[#fffdfa] border border-[#cbd5e1] shadow-[3px_4px_6px_rgba(0,0,0,0.35),1px_2px_3px_rgba(0,0,0,0.2)] flex flex-col items-center justify-center p-1 overflow-hidden">
-                  {/* Subtle 3D Edge Bevel Highlights */}
-                  <span className="absolute inset-x-0 top-0 h-[2px] bg-white" />
-                  <span className="absolute inset-y-0 left-0 w-[2px] bg-white" />
-                  <span className="absolute inset-x-0 bottom-0 h-[3px] bg-[#94a3b8]" />
-                  <span className="absolute inset-y-0 right-0 w-[3px] bg-[#94a3b8]" />
+                {/* --------------------------------------------------- */}
+                {/* 3D TILE STRUCTURE: Front Face + Right & Bottom Depth */}
+                {/* --------------------------------------------------- */}
+                <div
+                  className={`relative w-full h-full rounded-[7px] border border-stone-300 ${shadowIntensity} flex flex-col items-center justify-center p-1 overflow-hidden transition-colors ${
+                    isFree
+                      ? 'bg-[#fffdfa] text-stone-900 border-b-2 border-emerald-600/40'
+                      : 'bg-[#f1f5f9] text-stone-800 shadow-inner'
+                  }`}
+                >
+                  {/* Isometric Right Depth Face Extrusion */}
+                  <span
+                    className="absolute -right-[7px] top-[4px] bottom-[4px] w-[7px] rounded-r-[4px] pointer-events-none"
+                    style={{
+                      backgroundColor: isFree ? '#cbd5e1' : '#94a3b8',
+                      boxShadow: 'inset -1px 0 2px rgba(0,0,0,0.2)',
+                    }}
+                  />
+
+                  {/* Isometric Bottom Depth Face Extrusion */}
+                  <span
+                    className="absolute -bottom-[8px] left-[4px] right-[4px] h-[8px] rounded-b-[4px] pointer-events-none"
+                    style={{
+                      backgroundColor: isFree ? '#94a3b8' : '#64748b',
+                      boxShadow: 'inset 0 -1px 2px rgba(0,0,0,0.3)',
+                    }}
+                  />
+
+                  {/* Optional Layer Number Badge (L1–L6) */}
+                  {viewPrefs.showLayerNumbers && (
+                    <span
+                      className={`absolute bottom-0.5 right-0.5 px-1 py-0.2 rounded text-[9px] font-black leading-tight ${
+                        tile.z === 0
+                          ? 'bg-stone-200 text-stone-700'
+                          : tile.z === 1
+                          ? 'bg-blue-100 text-blue-900'
+                          : tile.z === 2
+                          ? 'bg-amber-100 text-amber-900'
+                          : tile.z === 3
+                          ? 'bg-purple-100 text-purple-900'
+                          : 'bg-rose-100 text-rose-900'
+                      }`}
+                    >
+                      L{tile.z + 1}
+                    </span>
+                  )}
+
+                  {/* Covering Tile Anchored Tag */}
+                  {isCoverer && (
+                    <span className="absolute -top-5 left-1/2 -translate-x-1/2 rounded-full bg-cyan-600 px-2 py-0.5 text-[10px] font-black text-white shadow-md whitespace-nowrap z-50">
+                      Above
+                    </span>
+                  )}
 
                   {/* Tile SVG Artwork */}
                   <TileArtwork
                     identity={identity}
                     theme={themeId}
-                    largePrint={largePrint}
+                    largePrint={viewPrefs.largePrint}
                     className="w-full h-full object-contain"
                   />
                 </div>
@@ -924,149 +1319,442 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
           })}
         </div>
 
-        {/* Floating Mini Map in corner */}
-        <div className="hidden md:block absolute top-4 right-4 z-30 rounded-xl border border-white/20 bg-stone-900/75 p-2 backdrop-blur-md text-white shadow-lg">
-          <p className="text-[10px] font-black uppercase text-stone-400 mb-1">Board Overview</p>
-          <div className="relative w-28 h-20 bg-stone-800/90 rounded border border-stone-700 overflow-hidden">
-            {tiles.map((t) => {
-              if (!t.active) return null;
-              const px = (t.x / (layout.cameraBounds.maxX || 24)) * 100;
-              const py = (t.y / (layout.cameraBounds.maxY || 16)) * 100;
-              return (
-                <div
-                  key={t.instanceId}
-                  className={`absolute w-1.5 h-2 rounded-[1px] ${
-                    isTileFree(t, activeTiles) ? 'bg-emerald-400' : 'bg-stone-500'
-                  }`}
-                  style={{ left: `${px}%`, top: `${py}%` }}
-                />
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Floating Educational Toast */}
+        {/* ------------------------------------------------------------- */}
+        {/* FLOATING DIAGNOSTIC MESSAGE CARD                              */}
+        {/* ------------------------------------------------------------- */}
         {toastMessage && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 rounded-full border border-amber-300 bg-amber-50 px-5 py-2.5 text-xs font-black text-amber-950 shadow-xl animate-fadeIn flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-amber-700" />
-            <span>{toastMessage}</span>
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 max-w-[min(90vw,480px)] w-full rounded-2xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-sm sm:text-base font-black text-amber-950 shadow-2xl animate-fadeIn flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Sparkles className="h-5 w-5 shrink-0 text-amber-700" />
+              <span className="leading-snug">{toastMessage}</span>
+            </div>
+            <button
+              onClick={() => setToastMessage(null)}
+              className="h-8 w-8 shrink-0 rounded-lg hover:bg-amber-200 flex items-center justify-center"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         )}
 
-        {/* Mobile Camera Floating Controls */}
-        <div className="sm:hidden absolute bottom-20 right-3 z-30 flex flex-col gap-2">
-          <button
-            onClick={() => setZoom((z) => Math.min(2.0, z + 0.2))}
-            className="h-11 w-11 rounded-xl border border-stone-300 bg-white text-stone-800 shadow-md flex items-center justify-center"
-            aria-label="Zoom in"
-          >
-            <ZoomIn className="h-5 w-5" />
-          </button>
-          <button
-            onClick={() => setZoom((z) => Math.max(0.6, z - 0.2))}
-            className="h-11 w-11 rounded-xl border border-stone-300 bg-white text-stone-800 shadow-md flex items-center justify-center"
-            aria-label="Zoom out"
-          >
-            <ZoomOut className="h-5 w-5" />
-          </button>
-          <button
-            onClick={() => {
-              setZoom(1);
-              setPan({ x: 0, y: 0 });
-            }}
-            className="h-11 w-11 rounded-xl border border-stone-300 bg-white text-stone-800 shadow-md flex items-center justify-center"
-            aria-label="Fit board"
-          >
-            <Maximize2 className="h-5 w-5" />
-          </button>
-        </div>
+        {/* ------------------------------------------------------------- */}
+        {/* FIRST PLAY DISMISSIBLE LEGEND                                 */}
+        {/* ------------------------------------------------------------- */}
+        {showLegend && (
+          <div className="hidden lg:flex absolute bottom-4 left-4 z-30 flex-col gap-2 rounded-2xl border border-stone-300/40 bg-stone-900/80 p-3.5 backdrop-blur-md text-white shadow-xl max-w-xs text-xs font-bold">
+            <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+              <span className="font-black uppercase tracking-wider text-amber-300">
+                Tile Help Legend
+              </span>
+              <button
+                onClick={dismissLegend}
+                className="h-6 w-6 rounded hover:bg-white/20 flex items-center justify-center text-stone-300"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="h-3 w-3 rounded-full bg-[#fffdfa] border border-emerald-500" />
+                <span>Bright face: Playable tile</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="h-3 w-3 rounded-full bg-[#cbd5e1]" />
+                <span>Cool face: Blocked from above/side</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="h-3 w-3 rounded-full bg-cyan-400" />
+                <span>Cyan outline: Covers the blocked tile</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* ENHANCED MINI-MAP WITH HEATMAP & CAMERA RECENTER              */}
+        {/* ------------------------------------------------------------- */}
+        {showMiniMap && (
+          <div className="hidden md:block absolute top-4 right-4 z-30 rounded-2xl border border-white/20 bg-stone-900/80 p-2.5 backdrop-blur-md text-white shadow-xl">
+            <div className="flex items-center justify-between mb-1.5 px-0.5">
+              <p className="text-[10px] font-black uppercase tracking-wider text-stone-400">
+                Board Map
+              </p>
+              <button
+                onClick={() => setShowMiniMap(false)}
+                className="h-4 w-4 text-stone-400 hover:text-white"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+            <div
+              className="relative w-32 h-24 bg-stone-800/90 rounded-lg border border-stone-700 overflow-hidden cursor-crosshair"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const clickX = (e.clientX - rect.left) / rect.width;
+                const clickY = (e.clientY - rect.top) / rect.height;
+                const targetPanX = -(clickX - 0.5) * boardTotalWidth * zoom;
+                const targetPanY = -(clickY - 0.5) * boardTotalHeight * zoom;
+                setPan({ x: targetPanX, y: targetPanY });
+              }}
+            >
+              {tiles.map((t) => {
+                if (!t.active) return null;
+                const px = (t.x / (layout.cameraBounds.maxX || 24)) * 100;
+                const py = (t.y / (layout.cameraBounds.maxY || 16)) * 100;
+                const isFree = isTileFree(t, activeTiles);
+
+                return (
+                  <div
+                    key={t.instanceId}
+                    className={`absolute w-2 h-2.5 rounded-[1px] ${
+                      isFree
+                        ? 'bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.8)]'
+                        : t.z === 0
+                        ? 'bg-stone-600'
+                        : t.z === 1
+                        ? 'bg-blue-400'
+                        : t.z === 2
+                        ? 'bg-amber-400'
+                        : 'bg-rose-400'
+                    }`}
+                    style={{ left: `${px}%`, top: `${py}%` }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
       </main>
 
       {/* ------------------------------------------------------------- */}
-      {/* 4. CLASSIC STATUS STRIP & QUICK ACTION BAR (Bottom)           */}
+      {/* 4. CLASSIC STATUS BAR & MOBILE ACTION BAR (Bottom)            */}
       {/* ------------------------------------------------------------- */}
-      <footer className="shrink-0 border-t border-stone-800/10 bg-white/95 text-stone-900 pb-[env(safe-area-inset-bottom)] shadow-lg z-30">
-        {/* Status Strip (Tiles Left, Matches Available, Pairs Cleared - NO Score/Timer!) */}
-        <div className="flex items-center justify-between border-b border-stone-200 px-4 py-2 text-xs font-bold text-stone-700">
-          <div className="flex items-center gap-4">
-            <span>
-              <strong>{activeTiles.length}</strong> tiles left
+      <footer className="shrink-0 border-t border-black/15 bg-white text-stone-900 pb-[env(safe-area-inset-bottom)] shadow-2xl z-30">
+        {/* Status Strip with 3 Equal Columns */}
+        <div className="grid grid-cols-3 border-b border-stone-200 px-3 py-2 text-center text-xs sm:text-sm font-bold text-stone-700">
+          <div className="border-r border-stone-200 px-2">
+            <span className="block text-base sm:text-xl font-black text-stone-950">
+              {activeTiles.length}
             </span>
-            <span>·</span>
-            <span
-              className={
-                availableMatches.length > 0
-                  ? 'text-emerald-800 font-black'
-                  : 'text-amber-800 font-black'
-              }
-            >
-              <strong>{availableMatches.length}</strong> matches available
+            <span className="text-[11px] sm:text-xs text-stone-500 font-semibold uppercase tracking-wider">
+              Tiles Left
             </span>
           </div>
-          <div>
-            <span>
-              <strong>{pairsCleared}</strong> pairs cleared
+          <div className="border-r border-stone-200 px-2">
+            <span
+              className={`block text-base sm:text-xl font-black ${
+                availableMatches.length > 0 ? 'text-emerald-700' : 'text-amber-700'
+              }`}
+            >
+              {availableMatches.length}
+            </span>
+            <span className="text-[11px] sm:text-xs text-stone-500 font-semibold uppercase tracking-wider">
+              Available
+            </span>
+          </div>
+          <div className="px-2">
+            <span className="block text-base sm:text-xl font-black text-stone-950">
+              {pairsCleared}
+            </span>
+            <span className="text-[11px] sm:text-xs text-stone-500 font-semibold uppercase tracking-wider">
+              Cleared
             </span>
           </div>
         </div>
 
-        {/* Bottom Actions */}
+        {/* Bottom Actions (>=56px touch targets) */}
         <div className="flex items-center justify-around gap-2 px-3 py-2 max-w-xl mx-auto">
           <button
             onClick={handleUndo}
             disabled={!moveHistory.length}
-            className="flex-1 flex min-h-12 items-center justify-center gap-2 rounded-xl border border-stone-300 bg-stone-50 font-black text-stone-800 hover:bg-stone-100 disabled:opacity-30 transition"
+            className="flex-1 flex min-h-14 flex-col sm:flex-row items-center justify-center gap-1 rounded-2xl border border-stone-300 bg-stone-50 font-black text-stone-800 hover:bg-stone-100 disabled:opacity-30 transition"
           >
-            <CornerUpLeft className="h-4 w-4" />
-            <span>Undo</span>
+            <CornerUpLeft className="h-5 w-5" />
+            <span className="text-xs sm:text-sm">Undo</span>
           </button>
+
           <button
             onClick={handleHint}
-            className="flex-1 flex min-h-12 items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 font-black text-amber-900 hover:bg-amber-100 transition"
+            className="flex-1 flex min-h-14 flex-col sm:flex-row items-center justify-center gap-1 rounded-2xl border border-amber-300 bg-amber-50 font-black text-amber-900 hover:bg-amber-100 transition"
           >
-            <Search className="h-4 w-4 text-amber-700" />
-            <span>Hint</span>
+            <Search className="h-5 w-5 text-amber-700" />
+            <span className="text-xs sm:text-sm">Hint</span>
           </button>
+
           <button
-            onClick={handleShuffle}
-            className="flex-1 flex min-h-12 items-center justify-center gap-2 rounded-xl border border-teal-300 bg-teal-50 font-black text-teal-900 hover:bg-teal-100 transition"
+            onClick={() => {
+              const next = viewPrefs.viewMode === 'fit' ? 'comfort' : 'fit';
+              setViewPrefs((p) => ({ ...p, viewMode: next }));
+              fitBoardToView(next);
+            }}
+            className="flex-1 flex min-h-14 flex-col sm:flex-row items-center justify-center gap-1 rounded-2xl border border-teal-300 bg-teal-50 font-black text-teal-900 hover:bg-teal-100 transition"
           >
-            <RefreshCw className="h-4 w-4 text-teal-700" />
-            <span>Shuffle</span>
+            {viewPrefs.viewMode === 'fit' ? (
+              <>
+                <Minimize2 className="h-5 w-5 text-teal-700" />
+                <span className="text-xs sm:text-sm">Comfort</span>
+              </>
+            ) : (
+              <>
+                <Maximize2 className="h-5 w-5 text-teal-700" />
+                <span className="text-xs sm:text-sm">Fit</span>
+              </>
+            )}
           </button>
+
           <button
-            onClick={() => setShowStageModal(true)}
-            className="flex-1 flex min-h-12 items-center justify-center gap-2 rounded-xl border border-stone-300 bg-stone-100 font-black text-stone-800 hover:bg-stone-200 transition"
+            onClick={() => setShowMobileMoreSheet(true)}
+            className="flex-1 flex min-h-14 flex-col sm:flex-row items-center justify-center gap-1 rounded-2xl border border-stone-300 bg-stone-100 font-black text-stone-800 hover:bg-stone-200 transition"
           >
-            <Compass className="h-4 w-4" />
-            <span>Stage</span>
+            <MoreHorizontal className="h-5 w-5" />
+            <span className="text-xs sm:text-sm">More</span>
           </button>
         </div>
       </footer>
 
       {/* ------------------------------------------------------------- */}
-      {/* 5. MODALS & OVERLAYS                                          */}
+      {/* 5. MODALS & SHEETS                                            */}
       {/* ------------------------------------------------------------- */}
 
-      {/* NO MOVES / DEAD END RECOVERY MODAL */}
-      {showNoMovesModal && (
+      {/* STAGE SELECTOR & TESTING MODE MODAL */}
+      {showStageModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-3 sm:p-5 backdrop-blur-md">
+          <div className="w-full max-w-4xl max-h-[90vh] flex flex-col rounded-3xl bg-white shadow-2xl overflow-hidden animate-fadeIn">
+            {/* Sticky Header with Testing Mode Switch */}
+            <div className="p-5 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-stone-50">
+              <div>
+                <h2 className="text-2xl font-black text-stone-900">Choose Mahjong Layout</h2>
+                <p className="text-xs sm:text-sm font-semibold text-stone-500 mt-0.5">
+                  12 curated layered formations (24 to 144 tiles)
+                </p>
+              </div>
+
+              {/* Mahjong Testing Mode Switch */}
+              <div className="flex items-center gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 px-4 py-2.5">
+                <div className="min-w-0">
+                  <span className="block text-xs font-black uppercase tracking-wider text-amber-900">
+                    Testing Mode (Unlock All)
+                  </span>
+                  <span className="block text-[11px] font-semibold text-amber-700">
+                    Session only · No progress side-effects
+                  </span>
+                </div>
+                <button
+                  onClick={() => toggleTestingMode(!testingState.enabled)}
+                  className={`h-7 w-12 rounded-full transition-colors relative flex items-center px-0.5 ${
+                    testingState.enabled ? 'bg-amber-600' : 'bg-stone-300'
+                  }`}
+                  aria-label="Toggle Mahjong Testing Mode"
+                >
+                  <span
+                    className={`h-6 w-6 rounded-full bg-white shadow-md transform transition-transform ${
+                      testingState.enabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowStageModal(false)}
+                className="hidden sm:flex h-10 w-10 rounded-xl border border-stone-200 bg-white items-center justify-center text-stone-700 hover:bg-stone-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Scrollable Stage Cards Grid */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+              {mahjongLayouts.map((l) => {
+                const isUnlocked = l.stage <= effectiveUnlockedStage;
+                const isCurrent = l.stage === stage;
+                const isTestUnlocked = testingState.enabled && l.stage > realUnlockedStage;
+
+                return (
+                  <button
+                    key={l.id}
+                    disabled={!isUnlocked}
+                    onClick={() => handleNewDeal(l.stage)}
+                    className={`p-4 rounded-2xl border-2 text-left transition flex flex-col justify-between ${
+                      isCurrent
+                        ? 'border-teal-700 bg-teal-50/70 shadow-md ring-2 ring-teal-600/30'
+                        : isUnlocked
+                        ? 'border-stone-200 bg-white hover:border-teal-400 hover:shadow-md'
+                        : 'border-stone-100 bg-stone-50 opacity-40 cursor-not-allowed'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-teal-800 uppercase tracking-wider">
+                          Stage {l.stage}
+                        </span>
+                        {isCurrent ? (
+                          <span className="rounded-full bg-teal-700 text-white text-[10px] font-black px-2 py-0.5">
+                            Current
+                          </span>
+                        ) : isTestUnlocked ? (
+                          <span className="rounded-full bg-amber-200 text-amber-900 text-[10px] font-black px-2 py-0.5">
+                            Test Unlocked
+                          </span>
+                        ) : !isUnlocked ? (
+                          <span className="text-xs">🔒</span>
+                        ) : null}
+                      </div>
+
+                      <h3 className="text-lg font-black text-stone-900 mt-1">
+                        {l.name[selectedLanguage] || l.name.English}
+                      </h3>
+                      <p className="text-xs font-semibold text-stone-500 mt-0.5">
+                        {l.tileCount} tiles · {l.maxLayers} layers
+                      </p>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between text-xs font-bold text-teal-800">
+                      <span>{l.subtitle[selectedLanguage] || l.subtitle.English}</span>
+                      <span className="font-black text-sm">Play →</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Mobile Close Bar */}
+            <div className="sm:hidden p-3 border-t border-stone-200 bg-stone-50">
+              <button
+                onClick={() => setShowStageModal(false)}
+                className="w-full min-h-12 rounded-xl bg-stone-900 font-black text-white"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MOBILE MORE ACTIONS SHEET */}
+      {showMobileMoreSheet && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5 shadow-2xl animate-fadeIn">
+            <div className="flex items-center justify-between border-b pb-3 mb-4">
+              <h3 className="text-xl font-black text-stone-900">Game Options</h3>
+              <button
+                onClick={() => setShowMobileMoreSheet(false)}
+                className="h-9 w-9 rounded-xl border flex items-center justify-center"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              <button
+                onClick={() => {
+                  handleShuffleRequest();
+                  setShowMobileMoreSheet(false);
+                }}
+                className="min-h-12 w-full rounded-2xl border border-teal-300 bg-teal-50 font-black text-teal-900 flex items-center justify-center gap-2"
+              >
+                <RefreshCw className="h-4 w-4" /> Shuffle Remaining Tiles
+              </button>
+              <button
+                onClick={() => {
+                  setShowStageModal(true);
+                  setShowMobileMoreSheet(false);
+                }}
+                className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-center gap-2"
+              >
+                <Compass className="h-4 w-4" /> Choose Stage (1–12)
+              </button>
+              <button
+                onClick={() => {
+                  handleRestartDeal();
+                  setShowMobileMoreSheet(false);
+                }}
+                className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-center gap-2"
+              >
+                Restart This Board
+              </button>
+              <button
+                onClick={() => {
+                  setViewPrefs((p) => ({
+                    ...p,
+                    showLayerNumbers: !p.showLayerNumbers,
+                  }));
+                  setShowMobileMoreSheet(false);
+                }}
+                className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-between px-4"
+              >
+                <span>Show Layer Numbers (L1–L6)</span>
+                {viewPrefs.showLayerNumbers && <Check className="h-4 w-4 text-emerald-700" />}
+              </button>
+              <button
+                onClick={() => {
+                  setViewPrefs((p) => ({ ...p, largePrint: !p.largePrint }));
+                  setShowMobileMoreSheet(false);
+                }}
+                className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-between px-4"
+              >
+                <span>Large Print Numbers</span>
+                {viewPrefs.largePrint && <Check className="h-4 w-4 text-emerald-700" />}
+              </button>
+              <button
+                onClick={() => {
+                  setShowTutorial(true);
+                  setShowMobileMoreSheet(false);
+                }}
+                className="min-h-12 w-full rounded-2xl border border-stone-300 bg-stone-50 font-bold text-stone-800 flex items-center justify-center gap-2"
+              >
+                <HelpCircle className="h-4 w-4" /> How to Play Tutorial
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SHUFFLE CONFIRMATION MODAL */}
+      {showShuffleConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl animate-fadeIn">
+            <h3 className="text-xl font-black text-stone-900">Matches Are Still Available</h3>
+            <p className="mt-2 text-sm font-semibold text-stone-600">
+              There are still {availableMatches.length} matching pairs available on the board. Do you
+              wish to rearrange the tiles anyway?
+            </p>
+            <div className="mt-5 flex flex-col gap-2.5">
+              <button
+                onClick={triggerShuffle}
+                className="min-h-12 rounded-2xl bg-teal-800 font-black text-white"
+              >
+                Yes, Shuffle Tiles
+              </button>
+              <button
+                onClick={() => setShowShuffleConfirmModal(false)}
+                className="min-h-12 rounded-2xl border border-stone-200 font-bold text-stone-700"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DEAD-END NO MOVES MODAL */}
+      {showNoMovesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-2xl animate-fadeIn">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-100 text-amber-800 mb-3">
               <RefreshCw className="h-8 w-8" />
             </div>
-            <h2 className="text-2xl font-black text-stone-900">No Free Matches Right Now</h2>
+            <h2 className="text-2xl font-black text-stone-900">No Free Matches Available</h2>
             <p className="mt-2 text-sm font-semibold text-stone-600">
-              Your choices have closed this path. You can gently rearrange the remaining tiles or
-              step back.
+              Your choices have reached a natural dead end. You can rearrange the remaining tiles or
+              undo your recent moves.
             </p>
 
             <div className="mt-6 flex flex-col gap-3">
               <button
-                onClick={handleShuffle}
-                className="min-h-12 w-full rounded-2xl bg-teal-800 font-black text-white shadow-md hover:bg-teal-900 transition flex items-center justify-center gap-2"
+                onClick={triggerShuffle}
+                className="min-h-14 w-full rounded-2xl bg-teal-800 font-black text-white shadow-md hover:bg-teal-900 transition flex items-center justify-center gap-2 text-base"
               >
-                <RefreshCw className="h-4 w-4" /> Shuffle Remaining Tiles
+                <RefreshCw className="h-5 w-5" /> Shuffle Remaining Tiles
               </button>
               <button
                 disabled={!moveHistory.length}
@@ -1126,115 +1814,53 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
                 onClick={onBack}
                 className="min-h-12 w-full rounded-2xl border-2 border-rose-200 bg-rose-50 font-bold text-rose-800 hover:bg-rose-100 transition"
               >
-                Save & Exit to Menu
+                Save & Exit
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* STAGE SELECTOR MODAL */}
-      {showStageModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl animate-fadeIn">
-            <div className="flex items-center justify-between border-b pb-3 mb-4">
-              <div>
-                <h2 className="text-2xl font-black text-stone-900">Choose Mahjong Layout</h2>
-                <p className="text-xs font-bold text-stone-500">12 curated progressive stages</p>
-              </div>
-              <button
-                onClick={() => setShowStageModal(false)}
-                className="h-10 w-10 rounded-xl border border-stone-200 bg-stone-100 flex items-center justify-center"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {mahjongLayouts.map((l) => {
-                const unlocked = gameProgress['mahjong_memory']?.unlockedStage || 1;
-                const isUnlocked = l.stage <= unlocked;
-                const isCurrent = l.stage === stage;
-
-                return (
-                  <button
-                    key={l.id}
-                    disabled={!isUnlocked}
-                    onClick={() => handleNewDeal(l.stage)}
-                    className={`p-4 rounded-2xl border-2 text-left transition flex items-start justify-between ${
-                      isCurrent
-                        ? 'border-teal-700 bg-teal-50/70 shadow-md'
-                        : isUnlocked
-                        ? 'border-stone-200 bg-white hover:border-teal-400'
-                        : 'border-stone-100 bg-stone-50 opacity-50'
-                    }`}
-                  >
-                    <div>
-                      <span className="text-xs font-black text-teal-800">Stage {l.stage}</span>
-                      <h3 className="text-base font-black text-stone-900 mt-0.5">
-                        {l.name[selectedLanguage] || l.name.English}
-                      </h3>
-                      <p className="text-xs font-semibold text-stone-500 mt-1">
-                        {l.tileCount} tiles · {l.maxLayers} layers
-                      </p>
-                    </div>
-                    {isCurrent ? (
-                      <span className="rounded-full bg-teal-700 text-white text-[10px] font-black px-2 py-0.5">
-                        Current
-                      </span>
-                    ) : !isUnlocked ? (
-                      <span className="text-xs">🔒</span>
-                    ) : (
-                      <span className="text-xs font-bold text-teal-700">Play →</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TUTORIAL MODAL */}
+      {/* HOW TO PLAY TUTORIAL */}
       {showTutorial && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-md">
           <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl animate-fadeIn">
             <h2 className="text-2xl font-black text-stone-900 mb-2">How to Play Mahjong Solitaire</h2>
             <div className="space-y-3 text-sm font-semibold text-stone-700 mt-4">
-              <div className="p-3 rounded-2xl bg-stone-50 border border-stone-200 flex items-start gap-3">
+              <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200 flex items-start gap-3">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-700 text-white font-black text-xs">
                   1
                 </span>
                 <p>
-                  <strong>Find Matching Pairs:</strong> Tap two matching free tiles to remove them
-                  from the table.
+                  <strong>Match Free Pairs:</strong> Tap any two matching playable tiles to remove
+                  them from the board.
                 </p>
               </div>
-              <div className="p-3 rounded-2xl bg-stone-50 border border-stone-200 flex items-start gap-3">
+              <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200 flex items-start gap-3">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-700 text-white font-black text-xs">
                   2
                 </span>
                 <p>
-                  <strong>Uncovered:</strong> A tile must not be covered by another tile on a higher
-                  layer.
+                  <strong>Uncovered Rule:</strong> A tile must not be covered by another tile on a
+                  higher layer.
                 </p>
               </div>
-              <div className="p-3 rounded-2xl bg-stone-50 border border-stone-200 flex items-start gap-3">
+              <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200 flex items-start gap-3">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-700 text-white font-black text-xs">
                   3
                 </span>
                 <p>
-                  <strong>Open Side:</strong> A tile must have at least its left or right side
-                  completely open.
+                  <strong>Open Lateral Side:</strong> A tile must have either its left or right side
+                  completely clear of neighbor tiles.
                 </p>
               </div>
-              <div className="p-3 rounded-2xl bg-pink-50 border border-pink-200 flex items-start gap-3 text-pink-950">
+              <div className="p-3.5 rounded-2xl bg-pink-50 border border-pink-200 flex items-start gap-3 text-pink-950">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-pink-600 text-white font-black text-xs">
                   4
                 </span>
                 <p>
-                  <strong>Wild Flowers & Seasons:</strong> Any Flower tile matches any Flower. Any
-                  Season tile matches any Season.
+                  <strong>Wild Flowers & Seasons:</strong> Any Flower matches any Flower. Any Season
+                  matches any Season.
                 </p>
               </div>
             </div>
@@ -1243,7 +1869,7 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
               onClick={() => setShowTutorial(false)}
               className="mt-6 min-h-12 w-full rounded-2xl bg-teal-800 font-black text-white shadow-md hover:bg-teal-900 transition"
             >
-              I Understand — Start Playing
+              Start Playing
             </button>
           </div>
         </div>
@@ -1251,19 +1877,25 @@ export const MahjongSolitaireGame: React.FC<MahjongSolitaireGameProps> = ({
 
       {/* COMPLETION CELEBRATION MODAL */}
       {isCompleted && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
           <div className="w-full max-w-md rounded-3xl bg-white p-7 text-center shadow-2xl animate-fadeIn">
             <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-amber-500 shadow-xl mb-4">
               <Flower2 className="h-12 w-12 text-teal-950" />
             </div>
             <h2 className="text-3xl font-black text-teal-950">Board Cleared!</h2>
             <p className="mt-2 text-base font-semibold text-stone-600">
-              Wonderful focus! You matched every free tile in{' '}
-              <strong>{layout.name[selectedLanguage] || layout.name.English}</strong>.
+              {testingState.enabled
+                ? 'Test board cleared. This test was not added to patient progress.'
+                : `Wonderful focus! You matched every tile in ${
+                    layout.name[selectedLanguage] || layout.name.English
+                  }.`}
             </p>
-            <p className="mt-1 text-xs font-bold text-emerald-800 flex items-center justify-center gap-1.5">
-              <Sparkles className="h-4 w-4" /> 1 fresh flower added to your Memory Garden!
-            </p>
+
+            {!testingState.enabled && (
+              <p className="mt-1 text-xs font-bold text-emerald-800 flex items-center justify-center gap-1.5">
+                <Sparkles className="h-4 w-4" /> 1 flower added to your Memory Garden!
+              </p>
+            )}
 
             <div className="mt-6 flex flex-col gap-3">
               {stage < 12 && (

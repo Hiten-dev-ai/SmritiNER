@@ -1,3 +1,8 @@
+/**
+ * @deprecated Legacy 2D flat card pair matching implementation.
+ * Replaced by the full-fidelity 3D Mahjong Titans Solitaire game in `MahjongSolitaireGame.tsx`.
+ * Kept for backwards reference.
+ */
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, Eye, HelpCircle, Sparkles } from 'lucide-react';
 import type { GameDifficultyProfile, GameRoundResult } from '../../types';

@@ -116,7 +116,7 @@ export interface GameProgress {
   unlockedStage: number;       // Highest available stage, 1–12
   recommendedStage: number;    // Default stage suggested by the app, 1–12
   lastPlayedStage?: number;
-  lastStageSource?: 'recommended' | 'manual';
+  lastStageSource?: 'recommended' | 'manual' | 'test';
   lastDecision:
     | 'start'
     | 'steady'
@@ -217,7 +217,7 @@ export interface JourneyGameSession {
   startedAt: string;
   completedAt: string;
   clientEventId: string;
-  stageSource?: 'recommended' | 'manual';
+  stageSource?: 'recommended' | 'manual' | 'test';
 }
 
 export interface CaregiverObservation {

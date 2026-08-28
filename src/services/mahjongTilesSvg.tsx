@@ -307,9 +307,19 @@ export const TileArtwork: React.FC<TileSvgProps> = ({
     <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg" fill="none">
       {/* Corner suit / family badge */}
       {number && (
-        <text x="14" y="22" fontSize="18" fontWeight="900" fill="#1e293b" textAnchor="middle">
-          {number}
-        </text>
+        <g>
+          <rect x="4" y="4" width={largePrint ? "22" : "18"} height={largePrint ? "22" : "18"} rx="4" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1" />
+          <text
+            x={largePrint ? "15" : "13"}
+            y={largePrint ? "21" : "18"}
+            fontSize={largePrint ? "18" : "14"}
+            fontWeight="900"
+            fill="#0f172a"
+            textAnchor="middle"
+          >
+            {number}
+          </text>
+        </g>
       )}
 
       {/* NATURE SUIT */}

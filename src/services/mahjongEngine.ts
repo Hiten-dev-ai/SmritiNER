@@ -75,6 +75,22 @@ export interface MahjongBoardSnapshot {
   shuffleCount: number;
 }
 
+export type MahjongStageSource = 'recommended' | 'manual' | 'test';
+
+export interface MahjongViewPreferences {
+  viewMode: 'fit' | 'comfort';
+  depthBoost: boolean;
+  showFreeHighlights: boolean;
+  showLayerNumbers: boolean;
+  explainBlockedTiles: boolean;
+  largePrint: boolean;
+}
+
+export interface MahjongTestingState {
+  enabled: boolean;
+  effectiveUnlockedStage: number;
+}
+
 export interface MahjongSavedGame {
   patientId: string;
   stage: number;

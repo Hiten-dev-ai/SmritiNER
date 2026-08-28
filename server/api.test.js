@@ -226,4 +226,72 @@ describe.sequential('server-backed multi-user access', () => {
     });
     expect((await finalGet.json()).save).toBeNull();
   });
+
+  it('supports atomic reminder completion, snooze, alerts listing, and SOS triggers', async () => {
+    const caretaker = await login('hiten', '1234');
+    const patient = await login('bhaben', '1234');
+
+    // 1. Caregiver creates a reminder
+    const remRes = await fetch(`${origin}/api/patients/pat-ner-001/reminders`, {
+      method: 'POST',
+      headers: { Cookie: caretaker.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: 'rem-test-01',
+        title: 'Morning BP Medicine',
+        category: 'medicine',
+        time: '08:00 AM',
+        completedDates: [],
+      }),
+    });
+    expect(remRes.status).toBe(201);
+
+    // 2. Patient triggers SOS
+    const sosRes = await fetch(`${origin}/api/patients/pat-ner-001/sos`, {
+      method: 'POST',
+      headers: { Cookie: patient.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Assistance Needed', notes: 'Patient called family' }),
+    });
+    expect(sosRes.status).toBe(201);
+    const sosBody = await sosRes.json();
+    expect(sosBody.alert.alertKind).toBe('sos');
+
+    // 3. Patient snoozes the reminder
+    const snoozeRes = await fetch(`${origin}/api/patients/pat-ner-001/reminders/rem-test-01/snooze`, {
+      method: 'POST',
+      headers: { Cookie: patient.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minutes: 10 }),
+    });
+    expect(snoozeRes.status).toBe(200);
+    const snoozeBody = await snoozeRes.json();
+    expect(snoozeBody.success).toBe(true);
+    expect(snoozeBody.snoozedUntil).toBeDefined();
+
+    // 4. Patient completes the reminder
+    const compRes = await fetch(`${origin}/api/patients/pat-ner-001/reminders/rem-test-01/complete`, {
+      method: 'POST',
+      headers: { Cookie: patient.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dateKey: '2026-08-28' }),
+    });
+    expect(compRes.status).toBe(200);
+    const compBody = await compRes.json();
+    expect(compBody.success).toBe(true);
+    expect(compBody.reminder.completedDates).toContain('2026-08-28');
+
+    // 5. Caregiver lists alerts
+    const alertsRes = await fetch(`${origin}/api/patients/pat-ner-001/alerts`, {
+      headers: { Cookie: caretaker.cookie },
+    });
+    expect(alertsRes.status).toBe(200);
+    const alertsBody = await alertsRes.json();
+    expect(alertsBody.alerts.length).toBeGreaterThan(0);
+
+    // 6. Caregiver resolves the SOS alert
+    const resolveRes = await fetch(`${origin}/api/patients/pat-ner-001/alerts/${sosBody.alert.id}`, {
+      method: 'PATCH',
+      headers: { Cookie: caretaker.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'resolved', notes: 'Spoke with son Anil' }),
+    });
+    expect(resolveRes.status).toBe(200);
+  });
 });
+

@@ -9,6 +9,8 @@ import {
   listGameProgress, listGameSessions, listObservations, listShares, registerCaregiver, resetPatientPassword,
   sharePatient, unsharePatient, updatePatient, upsertCollectionItem,
   getMahjongSave, saveMahjongSave, deleteMahjongSave,
+  completeReminderOccurrence, snoozeReminderOccurrence, listAlertEvents, updateAlertEventStatus,
+  createSosAlert, savePushSubscription, deletePushSubscription,
 } from './server/store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -165,6 +167,48 @@ app.post('/api/patients/:patientId/reminders', authRequired, withPatientAccess()
       input = { ...existing, completedDates: Array.isArray(req.body.completedDates) ? req.body.completedDates : existing.completedDates, snoozedUntil: req.body.snoozedUntil, lastAlertedDate: req.body.lastAlertedDate };
     }
     res.status(201).json({ item: upsertCollectionItem(req.params.patientId, 'reminders', input) });
+  } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/reminders/:reminderId/complete', authRequired, withPatientAccess(), (req, res) => {
+  try {
+    const result = completeReminderOccurrence(req.params.patientId, req.params.reminderId, req.body.dateKey);
+    res.json(result);
+  } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/reminders/:reminderId/snooze', authRequired, withPatientAccess(), (req, res) => {
+  try {
+    const result = snoozeReminderOccurrence(req.params.patientId, req.params.reminderId, req.body.minutes || 10);
+    res.json(result);
+  } catch (error) { handleError(res, error); }
+});
+app.get('/api/patients/:patientId/alerts', authRequired, withPatientAccess(), (req, res) => {
+  try {
+    const alerts = listAlertEvents(req.params.patientId, req.query.status);
+    res.json({ alerts });
+  } catch (error) { handleError(res, error); }
+});
+app.patch('/api/patients/:patientId/alerts/:alertId', authRequired, caregiverRequired, withPatientAccess(), (req, res) => {
+  try {
+    const alert = updateAlertEventStatus(req.params.alertId, req.authUser.id, req.body.status, req.body.notes);
+    res.json({ alert });
+  } catch (error) { handleError(res, error); }
+});
+app.post('/api/patients/:patientId/sos', authRequired, withPatientAccess(), (req, res) => {
+  try {
+    const alert = createSosAlert(req.params.patientId, req.body);
+    res.status(201).json({ alert });
+  } catch (error) { handleError(res, error); }
+});
+app.post('/api/notifications/subscriptions', authRequired, (req, res) => {
+  try {
+    const patientId = req.body.patientId || req.authUser.id;
+    const result = savePushSubscription(req.authUser.id, patientId, req.body.subscription);
+    res.status(201).json(result);
+  } catch (error) { handleError(res, error); }
+});
+app.delete('/api/notifications/subscriptions/:id', authRequired, (req, res) => {
+  try {
+    res.json(deletePushSubscription(req.params.id));
   } catch (error) { handleError(res, error); }
 });
 app.post('/api/patients/:patientId/hydration', authRequired, withPatientAccess(), (req, res) => {

@@ -137,6 +137,32 @@ database.exec(`
     last_saved_at TEXT NOT NULL,
     revision INTEGER NOT NULL DEFAULT 1
   );
+  CREATE TABLE IF NOT EXISTS alert_events (
+    id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    reminder_id TEXT REFERENCES reminders(id) ON DELETE SET NULL,
+    occurrence_key TEXT NOT NULL,
+    alert_kind TEXT NOT NULL CHECK (alert_kind IN ('medicine', 'hydration', 'routine', 'appointment', 'inactivity', 'sos', 'engagement')),
+    title TEXT NOT NULL,
+    notes TEXT,
+    status TEXT NOT NULL CHECK (status IN ('due', 'overdue', 'snoozed', 'completed', 'acknowledged', 'resolved')),
+    scheduled_time TEXT,
+    due_date TEXT NOT NULL,
+    delivered_at TEXT,
+    acknowledged_at TEXT,
+    resolved_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(patient_id, reminder_id, occurrence_key, alert_kind)
+  );
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    keys_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
 `);
 
 const nowIso = () => new Date().toISOString();
@@ -762,6 +788,166 @@ export function saveMahjongSave(patientId, saveObj) {
 
 export function deleteMahjongSave(patientId) {
   database.prepare('DELETE FROM patient_mahjong_saves WHERE patient_id = ?').run(patientId);
+  return { success: true };
+}
+
+// -----------------------------------------------------------------
+// ATOMIC REMINDER ACTIONS & OCCURRENCE RESOLUTION
+// -----------------------------------------------------------------
+
+export function completeReminderOccurrence(patientId, reminderId, dateKey = new Date().toISOString().slice(0, 10)) {
+  const row = database.prepare('SELECT data_json FROM reminders WHERE patient_id = ? AND id = ?').get(patientId, String(reminderId));
+  if (!row) throw new Error('Reminder not found.');
+
+  const reminder = JSON.parse(row.data_json);
+  const completedDates = Array.isArray(reminder.completedDates) ? reminder.completedDates : [];
+  if (!completedDates.includes(dateKey)) {
+    completedDates.push(dateKey);
+  }
+
+  reminder.completedDates = completedDates;
+  reminder.snoozedUntil = null;
+  const now = nowIso();
+
+  database.prepare('UPDATE reminders SET data_json = ?, updated_at = ? WHERE patient_id = ? AND id = ?').run(
+    JSON.stringify(reminder),
+    now,
+    patientId,
+    String(reminderId)
+  );
+
+  // Mark related alert as completed
+  const occurrenceKey = `${dateKey}_${reminder.time || 'due'}`;
+  database.prepare(`
+    UPDATE alert_events SET status = 'completed', resolved_at = ?, updated_at = ?
+    WHERE patient_id = ? AND reminder_id = ? AND occurrence_key = ?
+  `).run(now, now, patientId, String(reminderId), occurrenceKey);
+
+  return { success: true, reminder };
+}
+
+export function snoozeReminderOccurrence(patientId, reminderId, minutes = 10) {
+  const row = database.prepare('SELECT data_json FROM reminders WHERE patient_id = ? AND id = ?').get(patientId, String(reminderId));
+  if (!row) throw new Error('Reminder not found.');
+
+  const reminder = JSON.parse(row.data_json);
+  const snoozedUntil = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+  reminder.snoozedUntil = snoozedUntil;
+  const now = nowIso();
+
+  database.prepare('UPDATE reminders SET data_json = ?, updated_at = ? WHERE patient_id = ? AND id = ?').run(
+    JSON.stringify(reminder),
+    now,
+    patientId,
+    String(reminderId)
+  );
+
+  return { success: true, reminder, snoozedUntil };
+}
+
+// -----------------------------------------------------------------
+// ALERTS & NOTIFICATIONS
+// -----------------------------------------------------------------
+
+export function listAlertEvents(patientId, statusFilter) {
+  let query = 'SELECT * FROM alert_events WHERE patient_id = ?';
+  const params = [patientId];
+
+  if (statusFilter && statusFilter !== 'all') {
+    if (statusFilter === 'active') {
+      query += " AND status IN ('due', 'overdue', 'snoozed')";
+    } else {
+      query += ' AND status = ?';
+      params.push(statusFilter);
+    }
+  }
+  query += ' ORDER BY created_at DESC LIMIT 100';
+
+  const rows = database.prepare(query).all(...params);
+  return rows.map((r) => ({
+    id: r.id,
+    patientId: r.patient_id,
+    reminderId: r.reminder_id,
+    occurrenceKey: r.occurrence_key,
+    alertKind: r.alert_kind,
+    title: r.title,
+    notes: r.notes,
+    status: r.status,
+    scheduledTime: r.scheduled_time,
+    dueDate: r.due_date,
+    deliveredAt: r.delivered_at,
+    acknowledgedAt: r.acknowledged_at,
+    resolvedAt: r.resolved_at,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+}
+
+export function updateAlertEventStatus(alertId, caregiverId, status, note = '') {
+  const alert = database.prepare('SELECT * FROM alert_events WHERE id = ?').get(alertId);
+  if (!alert) throw new Error('Alert not found.');
+
+  const now = nowIso();
+  const acknowledgedAt = status === 'acknowledged' ? now : alert.acknowledged_at;
+  const resolvedAt = status === 'resolved' ? now : alert.resolved_at;
+
+  database.prepare(`
+    UPDATE alert_events
+    SET status = ?, acknowledged_at = ?, resolved_at = ?, notes = COALESCE(?, notes), updated_at = ?
+    WHERE id = ?
+  `).run(status, acknowledgedAt, resolvedAt, note || null, now, alertId);
+
+  return database.prepare('SELECT * FROM alert_events WHERE id = ?').get(alertId);
+}
+
+export function createSosAlert(patientId, details = {}) {
+  const now = nowIso();
+  const today = now.slice(0, 10);
+  const occurrenceKey = `sos_${Date.now()}`;
+  const alertId = randomUUID();
+
+  database.prepare(`
+    INSERT INTO alert_events (
+      id, patient_id, reminder_id, occurrence_key, alert_kind,
+      title, notes, status, scheduled_time, due_date,
+      delivered_at, created_at, updated_at
+    ) VALUES (?, ?, NULL, ?, 'sos', ?, ?, 'due', ?, ?, ?, ?, ?)
+  `).run(
+    alertId,
+    patientId,
+    occurrenceKey,
+    details.title || 'Emergency SOS / Family Call Request',
+    details.notes || 'Patient initiated family contact / assistance request from home screen.',
+    now.slice(11, 16),
+    today,
+    now,
+    now,
+    now
+  );
+
+  return { id: alertId, patientId, occurrenceKey, alertKind: 'sos', status: 'due', createdAt: now };
+}
+
+export function savePushSubscription(userId, patientId, subscription) {
+  const id = randomUUID();
+  const endpoint = subscription.endpoint;
+  const keysJson = JSON.stringify(subscription.keys || {});
+  const now = nowIso();
+
+  database.prepare(`
+    INSERT INTO push_subscriptions (id, user_id, patient_id, endpoint, keys_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(endpoint) DO UPDATE SET
+      user_id = excluded.user_id,
+      patient_id = excluded.patient_id,
+      keys_json = excluded.keys_json
+  `).run(id, userId, patientId, endpoint, keysJson, now);
+
+  return { id, endpoint, saved: true };
+}
+
+export function deletePushSubscription(subscriptionId) {
+  database.prepare('DELETE FROM push_subscriptions WHERE id = ?').run(subscriptionId);
   return { success: true };
 }
 

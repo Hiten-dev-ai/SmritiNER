@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import {
-  BellRing,
   ChevronRight,
   Droplets,
   Flower2,
-  Heart,
   Leaf,
+  Mic,
   PhoneCall,
   Pill,
   Play,
@@ -21,9 +20,12 @@ import {
   type JourneyGameType,
 } from '../../services/journeyEngine';
 import { getLayoutForStage, type MahjongSavedGame } from '../../services/mahjongEngine';
-import type { JourneyGameSession, ReminiscencePhoto, ReminderItem } from '../../types';
+import { voiceService } from '../../services/voiceService';
+import type { JourneyGameSession, ReminiscencePhoto, ReminderItem, VoiceActionId } from '../../types';
+import { AlertCoordinator } from '../alerts/AlertCoordinator';
 import { GameSelection } from '../games/GameSelection';
 import { JourneyGame } from '../games/JourneyGame';
+import { VoiceAssistModal } from '../voice/VoiceAssistModal';
 
 type View = 'home' | 'games' | 'game' | 'routine';
 
@@ -90,8 +92,6 @@ const patientCopy = {
 export const PatientHome: React.FC = () => {
   const {
     currentPatient,
-    readAloud,
-    speechSupported,
     isOnline,
     isOfflineSession,
     selectedLanguage,
@@ -100,189 +100,121 @@ export const PatientHome: React.FC = () => {
     setLocalGameProgress,
     t,
   } = useApp();
-  const copy = patientCopy[selectedLanguage];
+
   const [view, setView] = useState<View>('home');
-  const [selectedGame, setSelectedGame] = useState<JourneyGameType>('majuli_memory');
-  const [sessions, setSessions] = useState<JourneyGameSession[]>([]);
+  const [activeGameId, setActiveGameId] = useState<JourneyGameType | null>(null);
+  const [completedToday, setCompletedToday] = useState<JourneyGameSession[]>([]);
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
+  const [hydration, setHydration] = useState<number>(0);
   const [photos, setPhotos] = useState<ReminiscencePhoto[]>([]);
-  const [hydration, setHydration] = useState(0);
+  const [gardenFlowers, setGardenFlowers] = useState<number>(0);
   const [mahjongSave, setMahjongSave] = useState<MahjongSavedGame | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [showVoiceModal, setShowVoiceModal] = useState<boolean>(false);
+
   const today = getLocalDateKey();
+  const copy = patientCopy[selectedLanguage] || patientCopy.English;
 
   useEffect(() => {
     if (!currentPatient) return;
-    let active = true;
-    Promise.all([
-      api.listSessions(currentPatient.id).then((result) => result.sessions),
-      api
-        .listCollection<ReminderItem>(currentPatient.id, 'reminders')
-        .then((result) => result.items),
-      api
-        .listCollection<{ date: string; glassesDrunk: number }>(currentPatient.id, 'hydration')
-        .then((result) => result.items),
-      api
-        .listCollection<ReminiscencePhoto>(currentPatient.id, 'photos')
-        .then((result) => result.items),
-      api.getMahjongSave(currentPatient.id).then((result) => result.save).catch(() => null),
-    ])
-      .then(([nextSessions, nextReminders, logs, nextPhotos, savedMahjong]) => {
-        if (!active) return;
-        setSessions(nextSessions);
-        setReminders(nextReminders);
-        setPhotos(nextPhotos);
-        setHydration(logs.find((entry) => entry.date === today)?.glassesDrunk || 0);
+    let cancelled = false;
 
-        if (savedMahjong && savedMahjong.tiles?.filter((t) => t.active).length > 0) {
-          setMahjongSave(savedMahjong);
-        } else {
-          try {
-            const local = JSON.parse(
-              localStorage.getItem(`smriti-mahjong-save-${currentPatient.id}`) || 'null'
-            );
-            if (local && local.tiles?.filter((t: { active: boolean }) => t.active).length > 0) {
-              setMahjongSave(local);
-            }
-          } catch {
-            setMahjongSave(null);
-          }
+    const loadData = async () => {
+      try {
+        const [sessionsRes, remindersRes, hydrationRes, photosRes, progressRes, mahjongRes] =
+          await Promise.all([
+            api.listSessions(currentPatient.id).catch(() => ({ sessions: [] })),
+            api.listCollection<ReminderItem>(currentPatient.id, 'reminders').catch(() => ({ items: [] })),
+            api.listCollection<{ date: string; glassesDrunk: number }>(currentPatient.id, 'hydration').catch(() => ({ items: [] })),
+            api.listCollection<ReminiscencePhoto>(currentPatient.id, 'photos').catch(() => ({ items: [] })),
+            api.getGameProgress(currentPatient.id).catch(() => ({ progress: [] })),
+            api.getMahjongSave(currentPatient.id).catch(() => ({ save: null })),
+          ]);
+
+        if (cancelled) return;
+
+        const sessions = sessionsRes.sessions || [];
+        const todaySessions = sessions.filter(
+          (s) => s.completedAt && s.completedAt.slice(0, 10) === today
+        );
+        setCompletedToday(todaySessions);
+        setGardenFlowers(sessions.filter((s) => s.completionStatus === 'completed').length);
+        setReminders(remindersRes.items || []);
+
+        const todayHydration = hydrationRes.items?.find((item) => item.date === today);
+        setHydration(todayHydration?.glassesDrunk || 0);
+        setPhotos(photosRes.items || []);
+        setMahjongSave(mahjongRes.save || null);
+
+        if (progressRes.progress?.length) {
+          setLocalGameProgress(progressRes.progress);
         }
-      })
-      .catch(() => {
-        try {
-          setSessions(
-            JSON.parse(localStorage.getItem(`smriti-sessions-${currentPatient.id}`) || '[]')
-          );
-        } catch {
-          setSessions([]);
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
+      } catch {
+        // Fallback
+      }
     };
-  }, [currentPatient, today]);
 
-  useEffect(() => {
-    if (currentPatient)
-      localStorage.setItem(`smriti-sessions-${currentPatient.id}`, JSON.stringify(sessions));
-  }, [currentPatient, sessions]);
+    void loadData();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPatient, today, setLocalGameProgress]);
 
-  useEffect(() => {
-    if (!currentPatient || !isOnline || isOfflineSession) return;
-    const outboxKey = `smriti-session-outbox-${currentPatient.id}`;
-    let pending: JourneyGameSession[] = [];
-    try {
-      pending = JSON.parse(localStorage.getItem(outboxKey) || '[]');
-    } catch {
-      pending = [];
-    }
-    if (!pending.length) return;
-    void Promise.all(pending.map((session) => api.addSession(currentPatient.id, session)))
-      .then(() => {
-        localStorage.removeItem(outboxKey);
-        void refreshGameProgress();
-      })
-      .catch(() => undefined);
-  }, [currentPatient, isOfflineSession, isOnline, refreshGameProgress]);
+  if (!currentPatient) return null;
 
-  if (!currentPatient)
-    return <div className="p-8 text-center text-xl font-bold">Patient profile unavailable.</div>;
+  // 3 Daily Rotating Recommended Games
+  const dayIndex = new Date(today).getDate() % journeyDefinitions.length;
+  const dailyGames = [
+    journeyDefinitions[dayIndex % journeyDefinitions.length],
+    journeyDefinitions[(dayIndex + 2) % journeyDefinitions.length],
+    journeyDefinitions[(dayIndex + 4) % journeyDefinitions.length],
+  ];
 
-  const launch = (game: JourneyGameType) => {
-    setSelectedGame(game);
-    setView('game');
-    window.scrollTo({ top: 0 });
-  };
-
-  const completeSession = async (session: JourneyGameSession) => {
-    setSessions((values) => [...values, session]);
-    if (session.gameType === 'mahjong_memory') {
-      setMahjongSave(null);
-      if (currentPatient) {
-        localStorage.removeItem(`smriti-mahjong-save-${currentPatient.id}`);
-        await api.deleteMahjongSave(currentPatient.id).catch(() => undefined);
-      }
-    }
-    try {
-      const response = await api.addSession(currentPatient.id, session);
-      if (response?.progress) {
-        setLocalGameProgress(response.progress);
-      }
-    } catch {
-      const outboxKey = `smriti-session-outbox-${currentPatient.id}`;
-      const outbox = JSON.parse(localStorage.getItem(outboxKey) || '[]');
-      localStorage.setItem(outboxKey, JSON.stringify([...outbox, session]));
-    }
-  };
-
-  const activeProgress = gameProgress[selectedGame];
-  const currentStageForSelected =
-    activeProgress?.recommendedStage || activeProgress?.unlockedStage || 1;
-
-  if (view === 'game') {
-    return (
-      <JourneyGame
-        gameType={selectedGame}
-        stage={currentStageForSelected}
-        recentVariantIds={sessions.slice(-3).flatMap((session) => session.contentVariantIds)}
-        patientId={currentPatient.id}
-        photos={photos}
-        onBack={() => setView('games')}
-        onComplete={completeSession}
-      />
-    );
-  }
-
-  if (view === 'games') {
-    return (
-      <div className="mx-auto max-w-6xl p-4 sm:p-7">
-        <button
-          onClick={() => setView('home')}
-          className="mb-5 min-h-12 rounded-xl border border-stone-300 bg-white px-4 font-black text-stone-700 hover:bg-stone-50"
-        >
-          ← {copy.home}
-        </button>
-        <GameSelection sessions={sessions} onSelectGame={launch} />
-      </div>
-    );
-  }
-
-  const dueReminder = reminders.find(
-    (reminder) => !(reminder.completedDates || []).includes(today)
-  );
-  const completedToday = sessions.filter(
-    (session) =>
-      session.completionStatus === 'completed' &&
-      getLocalDateKey(new Date(session.completedAt)) === today
-  );
-  const gardenFlowers = sessions.filter(
-    (session) => session.completionStatus === 'completed'
-  ).length;
-
-  const dayIndex = new Date().getDate() % journeyDefinitions.length;
-  const dailyGames = [0, 1, 2].map(
-    (offset) => journeyDefinitions[(dayIndex + offset) % journeyDefinitions.length]
-  );
   const recommended =
-    dailyGames.find(
-      (game) => !completedToday.some((session) => session.gameType === game.id)
-    ) || dailyGames[0];
+    dailyGames.find((g) => !completedToday.some((s) => s.gameType === g.id)) || dailyGames[0];
   const recommendedText = localizedGame(recommended.id, selectedLanguage);
 
-  const markReminderDone = async () => {
-    if (!dueReminder) return;
-    const updated = {
-      ...dueReminder,
-      completedDates: [...(dueReminder.completedDates || []), today],
-    };
-    setReminders((values) =>
-      values.map((entry) => (entry.id === dueReminder.id ? updated : entry))
-    );
-    await api.saveCollectionItem(currentPatient.id, 'reminders', updated).catch(() => undefined);
+  const launch = (gameId: JourneyGameType) => {
+    setActiveGameId(gameId);
+    setView('game');
+  };
+
+  const handleVoiceCommand = (actionId: VoiceActionId) => {
+    switch (actionId) {
+      case 'home':
+        setView('home');
+        break;
+      case 'start_game':
+        launch(recommended.id as JourneyGameType);
+        break;
+      case 'open_routine':
+        setView('routine');
+        break;
+      case 'drink_water':
+        void updateHydration(hydration + 1);
+        break;
+      case 'call_family':
+        void handleCallFamily();
+        break;
+      case 'repeat':
+        voiceService.speak(`${copy.journey}. ${recommendedText.title}. ${copy.fresh}`, selectedLanguage);
+        break;
+      case 'back':
+        setView('home');
+        break;
+    }
+  };
+
+  const handleCallFamily = async () => {
+    if (!currentPatient) return;
+    try {
+      await api.triggerSos(currentPatient.id, {
+        title: 'Emergency SOS / Family Call Requested',
+        notes: `Patient initiated call to ${currentPatient.emergencyContactName} (${currentPatient.emergencyContactPhone}).`,
+      });
+    } catch {
+      // offline fallback
+    }
+    window.location.href = `tel:${currentPatient.emergencyContactPhone.replace(/\s/g, '')}`;
   };
 
   const updateHydration = async (value: number) => {
@@ -303,11 +235,25 @@ export const PatientHome: React.FC = () => {
   const mahjongSavedLayout = mahjongSave ? getLayoutForStage(mahjongSave.stage) : null;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-7">
+    <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-7 relative pb-20">
+      {/* ------------------------------------------------------------- */}
+      {/* 1. APPLICATION-LEVEL ALERT COORDINATOR                         */}
+      {/* ------------------------------------------------------------- */}
+      <AlertCoordinator onOpenRoutine={() => setView('routine')} />
+
+      {/* ------------------------------------------------------------- */}
+      {/* 2. PUSH-TO-TALK VOICE ASSIST MODAL                            */}
+      {/* ------------------------------------------------------------- */}
+      <VoiceAssistModal
+        isOpen={showVoiceModal}
+        onClose={() => setShowVoiceModal(false)}
+        onExecuteCommand={handleVoiceCommand}
+      />
+
+      {/* Offline Banner */}
       {(isOfflineSession || !isOnline) && (
         <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 font-bold text-amber-950">
-          Offline — games remain available and completed journeys will sync when this device
-          reconnects.
+          {t.offlineSaved}
         </div>
       )}
 
@@ -350,9 +296,24 @@ export const PatientHome: React.FC = () => {
         <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-assamGold-300/20 blur-2xl" />
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
-            <p className="text-base font-bold text-assamGold-300">
-              {t.welcome}, {currentPatient.name}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-base font-bold text-assamGold-300">
+                {t.welcome}, {currentPatient.name}
+              </p>
+              <button
+                onClick={() =>
+                  voiceService.speak(
+                    `${t.welcome} ${currentPatient.name}. ${copy.journey}. ${recommendedText.title}. ${copy.fresh}`,
+                    selectedLanguage
+                  )
+                }
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 text-assamGold-300 transition"
+                aria-label={t.listen}
+              >
+                <Volume2 className="h-4 w-4" />
+              </button>
+            </div>
+
             <h1 className="mt-2 text-3xl font-black leading-tight sm:text-5xl">{copy.journey}</h1>
             <p className="mt-3 text-lg font-semibold text-emerald-50">{copy.fresh}</p>
             <button
@@ -364,6 +325,7 @@ export const PatientHome: React.FC = () => {
               <ChevronRight />
             </button>
           </div>
+
           <div className="relative grid min-w-64 grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/20 bg-white/10 p-4 text-center">
               <Flower2 className="mx-auto h-8 w-8 text-assamGold-300" />
@@ -379,6 +341,7 @@ export const PatientHome: React.FC = () => {
         </div>
       </section>
 
+      {/* TODAY'S GAMES */}
       <section className="rounded-[1.75rem] border-2 border-tea-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -427,93 +390,104 @@ export const PatientHome: React.FC = () => {
         </div>
       </section>
 
-      {dueReminder && (
-        <section className="flex flex-col gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-400 text-amber-950">
-            <BellRing />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-black uppercase text-amber-800">
-              {t.dueNow} · {dueReminder.time}
-            </p>
-            <h2 className="text-xl font-black text-stone-950">{dueReminder.title}</h2>
-          </div>
-          {speechSupported && (
+      {/* ROUTINE, HYDRATION, AND EMERGENCY SOS */}
+      <section className="grid gap-4 md:grid-cols-3">
+        {/* Routine Card with Listen */}
+        <div className="flex flex-col justify-between rounded-3xl border-2 border-rose-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
             <button
-              onClick={() => readAloud(`${dueReminder.title}. ${dueReminder.time}`)}
-              className="flex h-12 w-12 items-center justify-center rounded-xl border border-amber-300 bg-white"
+              onClick={() => setView('routine')}
+              className="flex items-center gap-4 text-left flex-1"
+            >
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-100 text-rose-800">
+                <Pill className="h-7 w-7" />
+              </span>
+              <div>
+                <span className="text-xl font-black block">{copy.routine}</span>
+                <span className="mt-0.5 block font-semibold text-stone-600">
+                  {reminders.filter((item) => item.completedDates?.includes(today)).length}/
+                  {reminders.length} {t.done}
+                </span>
+              </div>
+            </button>
+            <button
+              onClick={() =>
+                voiceService.speak(
+                  `${copy.routine}. ${
+                    reminders.filter((item) => item.completedDates?.includes(today)).length
+                  } of ${reminders.length} items completed today.`,
+                  selectedLanguage
+                )
+              }
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100"
               aria-label={t.listen}
             >
-              <Volume2 />
+              <Volume2 className="h-4 w-4" />
             </button>
-          )}
-          <button
-            onClick={markReminderDone}
-            className="min-h-12 rounded-xl bg-amber-800 px-5 font-black text-white"
-          >
-            {t.markDone}
-          </button>
-        </section>
-      )}
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <button
-          onClick={() => setView('routine')}
-          className="flex min-h-32 items-center gap-4 rounded-3xl border-2 border-rose-200 bg-white p-5 text-left shadow-sm hover:shadow-md transition"
-        >
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-100 text-rose-800">
-            <Pill className="h-7 w-7" />
-          </span>
-          <span>
-            <span className="text-xl font-black">{copy.routine}</span>
-            <span className="mt-1 block font-semibold text-stone-600">
-              {reminders.filter((item) => item.completedDates?.includes(today)).length}/
-              {reminders.length} {t.done}
-            </span>
-          </span>
-        </button>
-        <section className="rounded-3xl border-2 border-sky-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-3">
-            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
-              <Droplets className="h-6 w-6" />
-            </span>
-            <div>
-              <h2 className="text-xl font-black">{copy.hydration}</h2>
-              <p className="font-bold text-stone-600">
-                {hydration}/6 {t.glasses}
-              </p>
-            </div>
           </div>
+        </div>
+
+        {/* Hydration Card with Listen */}
+        <div className="rounded-3xl border-2 border-sky-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+                <Droplets className="h-6 w-6" />
+              </span>
+              <div>
+                <h2 className="text-xl font-black">{copy.hydration}</h2>
+                <p className="font-bold text-stone-600">
+                  {hydration}/6 {t.glasses}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() =>
+                voiceService.speak(
+                  `${copy.hydration}. ${hydration} of 6 glasses logged today.`,
+                  selectedLanguage
+                )
+              }
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100"
+              aria-label={t.listen}
+            >
+              <Volume2 className="h-4 w-4" />
+            </button>
+          </div>
+
           <div className="mt-4 flex gap-2">
             <button
-              onClick={() => updateHydration(hydration - 1)}
-              className="h-12 flex-1 rounded-xl border border-stone-300 text-xl font-black"
+              onClick={() => void updateHydration(hydration - 1)}
+              className="h-12 flex-1 rounded-xl border border-stone-300 text-xl font-black hover:bg-stone-50"
             >
               −
             </button>
             <button
-              onClick={() => updateHydration(hydration + 1)}
-              className="h-12 flex-1 rounded-xl bg-sky-600 text-xl font-black text-white"
+              onClick={() => void updateHydration(hydration + 1)}
+              className="h-12 flex-1 rounded-xl bg-sky-600 text-xl font-black text-white hover:bg-sky-700"
             >
               + {copy.addWater}
             </button>
           </div>
-        </section>
-        <a
-          href={`tel:${currentPatient.emergencyContactPhone.replace(/\s/g, '')}`}
-          className="flex min-h-32 items-center gap-4 rounded-3xl bg-rose-700 p-5 text-white shadow-sm hover:bg-rose-800 transition"
+        </div>
+
+        {/* Emergency SOS Card */}
+        <button
+          onClick={() => void handleCallFamily()}
+          className="flex min-h-32 items-center gap-4 rounded-3xl bg-rose-700 p-5 text-white shadow-sm hover:bg-rose-800 transition text-left"
         >
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/20">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/20 shrink-0">
             <PhoneCall className="h-7 w-7" />
           </span>
-          <span>
+          <div className="min-w-0 flex-1">
             <span className="block text-sm font-black uppercase text-rose-100">{copy.family}</span>
-            <span className="block text-xl font-black">{currentPatient.emergencyContactName}</span>
+            <span className="block text-xl font-black truncate">{currentPatient.emergencyContactName}</span>
             <span className="font-semibold">{currentPatient.emergencyContactPhone}</span>
-          </span>
-        </a>
+          </div>
+        </button>
       </section>
 
+      {/* Routine Sheet View */}
       {view === 'routine' && (
         <section className="fixed inset-0 z-50 overflow-y-auto bg-[#f8fbf9] p-4">
           <div className="mx-auto max-w-2xl">
@@ -523,14 +497,34 @@ export const PatientHome: React.FC = () => {
             >
               ← {copy.home}
             </button>
-            <h1 className="text-3xl font-black">{t.todaysRoutine}</h1>
-            <div className="mt-5 space-y-3">
+            <div className="flex items-center justify-between mb-4">
+              <h1 className="text-3xl font-black">{t.todaysRoutine}</h1>
+              <button
+                onClick={() =>
+                  voiceService.speak(
+                    `${t.todaysRoutine}. ${reminders.map((r) => `${r.title} at ${r.time}`).join('. ')}`,
+                    selectedLanguage
+                  )
+                }
+                className="flex h-11 w-11 items-center justify-center rounded-xl border bg-white text-stone-700"
+                aria-label={t.listen}
+              >
+                <Volume2 className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
               {reminders.map((reminder) => {
                 const done = reminder.completedDates?.includes(today);
                 return (
                   <button
                     key={String(reminder.id)}
                     onClick={async () => {
+                      const reminderId = reminder.id;
+                      if (!reminderId) return;
+                      if (!done) {
+                        await api.completeReminder(currentPatient.id, reminderId, today);
+                      }
                       const updated = {
                         ...reminder,
                         completedDates: done
@@ -540,7 +534,6 @@ export const PatientHome: React.FC = () => {
                       setReminders((values) =>
                         values.map((entry) => (entry.id === reminder.id ? updated : entry))
                       );
-                      await api.saveCollectionItem(currentPatient.id, 'reminders', updated);
                     }}
                     className={`flex min-h-20 w-full items-center gap-4 rounded-2xl border-2 p-4 text-left ${
                       done ? 'border-emerald-300 bg-emerald-50' : 'border-stone-200 bg-white'
@@ -561,11 +554,46 @@ export const PatientHome: React.FC = () => {
           </div>
         </section>
       )}
-      {loading && <p className="text-center font-bold text-stone-500">{copy.loading}</p>}
-      <p className="flex items-center justify-center gap-2 pb-2 text-center text-sm font-semibold text-stone-500">
-        <Heart className="h-4 w-4" />
-        {copy.support}
-      </p>
+
+      {/* Floating Voice Assist Button */}
+      <button
+        onClick={() => setShowVoiceModal(true)}
+        className="fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-full bg-teal-800 text-white shadow-2xl hover:bg-teal-900 transition hover:scale-105 border-2 border-white animate-bounce"
+        aria-label={t.voiceAssist}
+      >
+        <Mic className="h-8 w-8" />
+      </button>
+
+      {/* Render Games Subviews */}
+      {view === 'games' && (
+        <GameSelection
+          onSelectGame={(id) => launch(id)}
+          sessions={completedToday}
+        />
+      )}
+
+      {view === 'game' && activeGameId && (
+        <JourneyGame
+          gameType={activeGameId}
+          patientId={currentPatient.id}
+          stage={
+            gameProgress[activeGameId]?.recommendedStage ||
+            gameProgress[activeGameId]?.unlockedStage ||
+            1
+          }
+          recentVariantIds={[]}
+          photos={photos}
+          onBack={() => {
+            setView('home');
+            setActiveGameId(null);
+            void refreshGameProgress();
+          }}
+          onComplete={async (session) => {
+            await api.addSession(currentPatient.id, session);
+            void refreshGameProgress();
+          }}
+        />
+      )}
     </div>
   );
 };

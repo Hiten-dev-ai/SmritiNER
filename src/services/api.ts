@@ -45,4 +45,18 @@ export const api = {
   getMahjongSave: (patientId: string) => request<{ save: import('./mahjongEngine').MahjongSavedGame | null }>(`/api/patients/${patientId}/mahjong-save`),
   saveMahjongSave: (patientId: string, save: import('./mahjongEngine').MahjongSavedGame) => request<{ save: import('./mahjongEngine').MahjongSavedGame }>(`/api/patients/${patientId}/mahjong-save`, { method: 'PUT', body: JSON.stringify(save) }),
   deleteMahjongSave: (patientId: string) => request<{ success: boolean }>(`/api/patients/${patientId}/mahjong-save`, { method: 'DELETE' }),
+  completeReminder: (patientId: string, reminderId: string | number, dateKey?: string) =>
+    request<{ success: boolean; reminder: import('../types').ReminderItem }>(`/api/patients/${patientId}/reminders/${reminderId}/complete`, { method: 'POST', body: JSON.stringify({ dateKey }) }),
+  snoozeReminder: (patientId: string, reminderId: string | number, minutes: number = 10) =>
+    request<{ success: boolean; reminder: import('../types').ReminderItem; snoozedUntil: string }>(`/api/patients/${patientId}/reminders/${reminderId}/snooze`, { method: 'POST', body: JSON.stringify({ minutes }) }),
+  listAlerts: (patientId: string, status?: string) =>
+    request<{ alerts: import('../types').AlertEvent[] }>(`/api/patients/${patientId}/alerts${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+  updateAlert: (patientId: string, alertId: string, status: import('../types').AlertStatus, notes?: string) =>
+    request<{ alert: import('../types').AlertEvent }>(`/api/patients/${patientId}/alerts/${alertId}`, { method: 'PATCH', body: JSON.stringify({ status, notes }) }),
+  triggerSos: (patientId: string, details?: { title?: string; notes?: string }) =>
+    request<{ alert: import('../types').AlertEvent }>(`/api/patients/${patientId}/sos`, { method: 'POST', body: JSON.stringify(details || {}) }),
+  subscribePush: (patientId: string, subscription: PushSubscriptionJSON) =>
+    request<{ id: string; endpoint: string; saved: boolean }>('/api/notifications/subscriptions', { method: 'POST', body: JSON.stringify({ patientId, subscription }) }),
+  unsubscribePush: (subscriptionId: string) =>
+    request<{ success: boolean }>(`/api/notifications/subscriptions/${subscriptionId}`, { method: 'DELETE' }),
 };

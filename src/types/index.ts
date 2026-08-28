@@ -300,3 +300,62 @@ export interface DailyHydrationLog {
   targetGlasses: number;
   synced: boolean;
 }
+
+export type AlertKind = 'medicine' | 'hydration' | 'routine' | 'appointment' | 'inactivity' | 'sos' | 'engagement';
+export type AlertStatus = 'due' | 'overdue' | 'snoozed' | 'completed' | 'acknowledged' | 'resolved';
+
+export interface AlertEvent {
+  id: string;
+  patientId: string;
+  reminderId?: string | null;
+  occurrenceKey: string;
+  alertKind: AlertKind;
+  title: string;
+  notes?: string | null;
+  status: AlertStatus;
+  scheduledTime?: string;
+  dueDate: string;
+  deliveredAt?: string;
+  acknowledgedAt?: string;
+  resolvedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PushSubscriptionRecord {
+  id: string;
+  endpoint: string;
+  saved: boolean;
+}
+
+export interface VoicePreferences {
+  enabled: boolean;
+  rate: number; // default 0.80
+  pitch: number; // default 1.0
+  preferredVoice?: string;
+  showTranscript: boolean;
+}
+
+export type VoiceActionId =
+  | 'home'
+  | 'back'
+  | 'repeat'
+  | 'start_game'
+  | 'pause'
+  | 'continue'
+  | 'hint'
+  | 'open_routine'
+  | 'mark_done'
+  | 'snooze'
+  | 'drink_water'
+  | 'call_family'
+  | 'stop_listening';
+
+export interface DetectedVoiceCommand {
+  actionId: VoiceActionId;
+  label: string;
+  confidence: number;
+  requiresConfirmation: boolean;
+  transcript: string;
+}
+
